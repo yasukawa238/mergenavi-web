@@ -3,9 +3,16 @@ import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map").setView([35.2281,138.8994],16);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
+const streetLayer=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  maxZoom:20,attribution:"&copy; OpenStreetMap contributors"
+});
+const aerialLayer=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{
+  maxZoom:20,attribution:"Tiles &copy; Esri"
+});
+streetLayer.addTo(map);
+L.control.layers({"地図":streetLayer,"航空写真":aerialLayer},null,{position:"topright",collapsed:false}).addTo(map);
 const clientId=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2);
-let channel=null,joined=false,mode=null,watchId=null,mergePoint=null,mergeMarker=null,currentPos=null,currentMarker=null;
+let channel=null,joined=false,mode=null,panMode=false,watchId=null,mergePoint=null,mergeMarker=null,currentPos=null,currentMarker=null;
 let drawPoints=[],routes={main:[],merge:[]},routeLayers={main:null,merge:null},previewLayer=null,telemetry={main:null,merge:null},speedEMA=null,lastGeo=null,lastCloudRx=0,lastGpsTimestamp=0;
 
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove("show"),1800)}
@@ -45,26 +52,88 @@ async function sendState(){await sendBroadcast("state",{mergePoint,routes,teleme
 function applyRemoteState(s){if(!s)return;if(s.mergePoint)setMergePoint(s.mergePoint,false);if(Array.isArray(s.routes?.main))setRoute("main",s.routes.main,false);if(Array.isArray(s.routes?.merge))setRoute("merge",s.routes.merge,false);if(s.telemetry?.main)telemetry.main=s.telemetry.main;if(s.telemetry?.merge)telemetry.merge=s.telemetry.merge;refreshDashboard()}
 function updatePresenceText(){if(!channel){$("presence").textContent="--";return}const st=channel.presenceState(),rows=[];for(const a of Object.values(st))for(const p of a)rows.push(`${p.role==="main"?"本線車":"合流車"}:${String(p.clientId).slice(0,5)}`);$("presence").textContent=rows.length?rows.join(" / "):"--"}
 
-$("mergePointBtn").onclick=()=>setMode("mergePoint");$("drawRouteBtn").onclick=()=>{drawPoints=[];setMode("drawRoute");previewRoute()};
+$("mergePointBtn").onclick=()=>setMode("mergePoint");
+$("drawRouteBtn").onclick=()=>{drawPoints=[];panMode=false;setMode("drawRoute");previewRoute()};
+$("panModeBtn").onclick=()=>{
+  panMode=!panMode;
+  $("panModeBtn").classList.toggle("active",panMode);
+  if(mode==="drawRoute"){
+    if(panMode){map.dragging.enable();toast("地図移動モード")}
+    else{map.dragging.disable();toast("経路描画モード")}
+  }
+};
 $("finishRouteBtn").onclick=async()=>{if(drawPoints.length<2)return alert("経路は2点以上設定してください");const r=role();setRoute(r,drawPoints,false);await sendBroadcast("route",{role:r,points:drawPoints,sentAt:Date.now()});drawPoints=[];setMode(null);previewRoute()};
 $("undoBtn").onclick=()=>{if(mode==="drawRoute"&&drawPoints.length){drawPoints.pop();previewRoute()}};
 $("clearRouteBtn").onclick=async()=>{const r=role();setRoute(r,[],false);await sendBroadcast("route",{role:r,points:[],sentAt:Date.now()})};
-function setMode(m){mode=m;["mergePointBtn","drawRouteBtn"].forEach(id=>$(id).classList.remove("active"));if(m==="mergePoint")$("mergePointBtn").classList.add("active");if(m==="drawRoute")$("drawRouteBtn").classList.add("active")}
-map.on("click",async e=>{if(mode==="mergePoint"){const p={lat:e.latlng.lat,lng:e.latlng.lng};setMergePoint(p,false);await sendBroadcast("mergePoint",{point:p,sentAt:Date.now()});setMode(null)}else if(mode==="drawRoute"){drawPoints.push({lat:e.latlng.lat,lng:e.latlng.lng});previewRoute()}});
+function setMode(m){
+  mode=m;
+  ["mergePointBtn","drawRouteBtn"].forEach(id=>$(id).classList.remove("active"));
+  if(m==="mergePoint"){
+    $("mergePointBtn").classList.add("active");
+    map.dragging.enable();
+  }else if(m==="drawRoute"){
+    $("drawRouteBtn").classList.add("active");
+    if(panMode)map.dragging.enable();else map.dragging.disable();
+  }else{
+    map.dragging.enable();
+    panMode=false;
+    $("panModeBtn").classList.remove("active");
+  }
+}
+map.on("click",async e=>{
+  if(mode==="mergePoint"){
+    const p={lat:e.latlng.lat,lng:e.latlng.lng};
+    setMergePoint(p,false);
+    await sendBroadcast("mergePoint",{point:p,sentAt:Date.now()});
+    setMode(null);
+  }else if(mode==="drawRoute" && !panMode){
+    drawPoints.push({lat:e.latlng.lat,lng:e.latlng.lng});
+    previewRoute();
+  }
+});
 function setMergePoint(p){mergePoint=p;if(mergeMarker)map.removeLayer(mergeMarker);mergeMarker=L.marker([p.lat,p.lng]).addTo(map).bindPopup("合流点")}
 function setRoute(r,points){routes[r]=points||[];if(routeLayers[r]){map.removeLayer(routeLayers[r]);routeLayers[r]=null}if(routes[r].length>=2)routeLayers[r]=L.polyline(routes[r].map(p=>[p.lat,p.lng]),{weight:6,opacity:.85,dashArray:r==="main"?null:"10 6"}).addTo(map)}
 function previewRoute(){if(previewLayer){map.removeLayer(previewLayer);previewLayer=null}if(drawPoints.length)previewLayer=L.polyline(drawPoints.map(p=>[p.lat,p.lng]),{weight:5,opacity:.7,dashArray:"4 8"}).addTo(map)}
 
-$("gpsBtn").onclick=()=>{if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;$("gpsBtn").textContent="GPS開始";$("gpsStatus").textContent="停止中";return}if(!navigator.geolocation)return alert("このブラウザは位置情報非対応");watchId=navigator.geolocation.watchPosition(onGeo,e=>$("gpsStatus").textContent=`GPSエラー: ${e.message}`,{enableHighAccuracy:true,maximumAge:0,timeout:10000});$("gpsBtn").textContent="GPS停止";$("gpsStatus").textContent="測位待ち"};
+$("gpsBtn").onclick=()=>{if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;$("gpsBtn").textContent="GPS開始";$("gpsStatus").textContent="停止中";return}if(!navigator.geolocation)return alert("このブラウザは位置情報非対応");
+$("gpsSource").textContent="Device Geolocation / High Accuracy";
+watchId=navigator.geolocation.watchPosition(
+  onGeo,
+  e=>$("gpsStatus").textContent=`GPSエラー: ${e.message}`,
+  {enableHighAccuracy:true,maximumAge:0,timeout:10000}
+);
+$("gpsBtn").textContent="GPS停止";
+$("gpsStatus").textContent="測位待ち"};
 function haversine(a,b){const R=6371000,toRad=x=>x*Math.PI/180,dLat=toRad(b.lat-a.lat),dLng=toRad(b.lng-a.lng),la1=toRad(a.lat),la2=toRad(b.lat);const h=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
 function deriveSpeed(pos,ts){if(!lastGeo){lastGeo={pos,ts};return null}const dt=(ts-lastGeo.ts)/1000;if(dt<=.2)return null;const v=haversine(lastGeo.pos,pos)/dt;lastGeo={pos,ts};return v}
-async function onGeo(g){const pos={lat:g.coords.latitude,lng:g.coords.longitude},ts=g.timestamp||Date.now();lastGpsTimestamp=ts;let sp=Number.isFinite(g.coords.speed)&&g.coords.speed>=0?g.coords.speed:deriveSpeed(pos,ts);if(Number.isFinite(sp))speedEMA=speedEMA==null?sp:(.35*sp+.65*speedEMA);currentPos=pos;if(!currentMarker)currentMarker=L.circleMarker([pos.lat,pos.lng],{radius:8,weight:3}).addTo(map);else currentMarker.setLatLng([pos.lat,pos.lng]);const r=role(),calc=calcForRole(r,pos,speedEMA);$("gpsStatus").textContent=`${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;$("accuracy").textContent=Number.isFinite(g.coords.accuracy)?`${g.coords.accuracy.toFixed(1)} m`:"-- m";$("speed").textContent=Number.isFinite(speedEMA)?`${(speedEMA*3.6).toFixed(1)} km/h`:"-- km/h";$("remaining").textContent=Number.isFinite(calc.remaining)?`${calc.remaining.toFixed(1)} m`:"-- m";const data={lat:pos.lat,lng:pos.lng,speed:Number.isFinite(speedEMA)?speedEMA:null,accuracy:g.coords.accuracy??null,heading:g.coords.heading??null,timestamp:ts,clientSentAt:Date.now(),remaining:calc.remaining,eta:calc.eta};telemetry[r]=data;await sendBroadcast("telemetry",{role:r,data});refreshDashboard()}
+async function onGeo(g){
+  const pos={lat:g.coords.latitude,lng:g.coords.longitude},ts=g.timestamp||Date.now();
+  lastGpsTimestamp=ts;
+
+  // Raw優先: 位置はDevice Geolocation値をそのまま使用。
+  // 速度も端末が返したcoords.speedをそのまま使い、独自算出・平滑化をしない。
+  let sp=(Number.isFinite(g.coords.speed)&&g.coords.speed>=0)?g.coords.speed:null;
+  speedEMA=sp;
+  currentPos=pos;if(!currentMarker)currentMarker=L.circleMarker([pos.lat,pos.lng],{radius:8,weight:3}).addTo(map);else currentMarker.setLatLng([pos.lat,pos.lng]);const r=role();
+  const calcSpeed=getEffectiveSpeed(r,speedEMA);
+  const calc=calcForRole(r,pos,calcSpeed);$("gpsStatus").textContent=`${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;$("accuracy").textContent=Number.isFinite(g.coords.accuracy)?`${g.coords.accuracy.toFixed(1)} m`:"-- m";$("speed").textContent=Number.isFinite(calcSpeed)?`${(calcSpeed*3.6).toFixed(1)} km/h`:"-- km/h";$("remaining").textContent=Number.isFinite(calc.remaining)?`${calc.remaining.toFixed(1)} m`:"-- m";const data={lat:pos.lat,lng:pos.lng,speed:Number.isFinite(calcSpeed)?calcSpeed:null,accuracy:g.coords.accuracy??null,heading:g.coords.heading??null,timestamp:ts,clientSentAt:Date.now(),remaining:calc.remaining,eta:calc.eta};telemetry[r]=data;await sendBroadcast("telemetry",{role:r,data});refreshDashboard()}
 $("centerBtn").onclick=()=>{if(currentPos)map.setView([currentPos.lat,currentPos.lng],18)};
 
 function toXY(p,refLat){const R=6371000,rad=Math.PI/180;return{x:R*(p.lng*rad)*Math.cos(refLat*rad),y:R*(p.lat*rad)}}
 function projectPointToRoute(p,route){if(!route||route.length<2)return null;const refLat=p.lat,P=toXY(p,refLat);let cum=0,best=null;for(let i=0;i<route.length-1;i++){const A=toXY(route[i],refLat),B=toXY(route[i+1],refLat),vx=B.x-A.x,vy=B.y-A.y,wx=P.x-A.x,wy=P.y-A.y,len2=vx*vx+vy*vy,t=len2?Math.max(0,Math.min(1,(wx*vx+wy*vy)/len2)):0,qx=A.x+t*vx,qy=A.y+t*vy,dx=P.x-qx,dy=P.y-qy,d2=dx*dx+dy*dy,segLen=Math.sqrt(len2);if(!best||d2<best.d2)best={d2,s:cum+t*segLen};cum+=segLen}return{...best,total:cum}}
+function getEffectiveSpeed(r,deviceSpeed){
+  if($("testMode").checked){
+    const kmh=r==="main"?parseFloat($("testMainSpeed").value):parseFloat($("testMergeSpeed").value);
+    return Number.isFinite(kmh)?kmh/3.6:null;
+  }
+  return Number.isFinite(deviceSpeed)?deviceSpeed:null;
+}
 function calcForRole(r,pos,sp){const rt=routes[r];if(!mergePoint||!rt||rt.length<2||!pos)return{remaining:null,eta:null};const cur=projectPointToRoute(pos,rt),mer=projectPointToRoute(mergePoint,rt);if(!cur||!mer)return{remaining:null,eta:null};const remaining=Math.max(0,mer.s-cur.s),eta=Number.isFinite(sp)&&sp>.8?remaining/sp:null;return{remaining,eta}}
 function renderVehicle(r,data){const e=$(r+"Eta"),d=$(r+"Detail");if(!data){e.textContent="--.- s";d.textContent="待機中";return}e.textContent=Number.isFinite(data.eta)?`${data.eta.toFixed(1)} s`:"--.- s";const kmh=Number.isFinite(data.speed)?data.speed*3.6:null,age=Number.isFinite(data.clientSentAt)?(Date.now()-data.clientSentAt)/1000:null;d.textContent=`${kmh!=null?kmh.toFixed(1)+" km/h":"-- km/h"} / ${Number.isFinite(data.remaining)?data.remaining.toFixed(0)+" m":"-- m"}${age!=null?" / "+age.toFixed(1)+"s old":""}`}
 function refreshDashboard(){const m=telemetry.main,g=telemetry.merge;renderVehicle("main",m);renderVehicle("merge",g);const inst=$("instruction"),d=$("delta"),tol=Math.max(.1,parseFloat($("tolerance").value)||.5),control=$("controlRole").value;if(!m||!g||!Number.isFinite(m.eta)||!Number.isFinite(g.eta)){inst.textContent="WAIT";inst.className="instructionText neutral";d.textContent="ΔT --.- s";return}const delta=m.eta-g.eta;d.textContent=`ΔT 本線-合流 = ${delta>=0?"+":""}${delta.toFixed(2)} s`;if(Math.abs(delta)<=tol){inst.textContent="KEEP";inst.className="instructionText ok";return}if(control==="main"){if(delta<0){inst.textContent="本線車 SLOW";inst.className="instructionText slow"}else{inst.textContent="本線車 FAST";inst.className="instructionText fast"}}else{if(delta<0){inst.textContent="合流車 FAST";inst.className="instructionText fast"}else{inst.textContent="合流車 SLOW";inst.className="instructionText slow"}}}
-$("tolerance").oninput=refreshDashboard;$("controlRole").onchange=refreshDashboard;
+$("tolerance").oninput=refreshDashboard;
+$("controlRole").onchange=refreshDashboard;
+$("testMode").onchange=()=>{toast($("testMode").checked?"テスト速度ON":"端末速度ON");};
+$("testMainSpeed").oninput=refreshDashboard;
+$("testMergeSpeed").oninput=refreshDashboard;
 setInterval(()=>{$("cloudAge").textContent=lastCloudRx?`${((Date.now()-lastCloudRx)/1000).toFixed(1)} s`:"-- s";$("age").textContent=lastGpsTimestamp?`${Math.max(0,(Date.now()-lastGpsTimestamp)/1000).toFixed(2)} s`:"-- s";refreshDashboard()},500);

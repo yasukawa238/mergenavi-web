@@ -47,3 +47,23 @@ Broadcast方式なので設定はDBへ永続保存しません。
 ## v0.4.1 修正
 - Leaflet JavaScriptの読み込み漏れを修正。
 - v0.4では `L is not defined` により app.js が停止し、Realtime接続ボタン等が動作しない不具合がありました。
+
+
+## v0.4.2 変更点
+- Device Geolocation値をそのまま使用するRaw優先モードに変更
+  - 緯度/経度はブラウザGeolocationの値をそのまま利用
+  - 速度は `coords.speed` をそのまま利用
+  - 独自の移動距離差分からの速度算出を停止
+  - 速度EMA平滑化を停止
+  - `enableHighAccuracy: true`
+- 室内テストモード追加
+  - 本線車/合流車のテスト速度を任意指定
+  - GPS位置は実測のまま、ETA計算速度だけ置換
+- 地図/航空写真切替を追加
+- 経路描画中は地図ドラッグを無効化
+- 「地図移動」ボタンで描画中に一時的にパン可能
+
+### GPSに関する注意
+WebブラウザからスマートフォンのGNSS受信機のRaw Measurementへ直接アクセスすることはできません。
+本版では `navigator.geolocation.watchPosition()` の高精度モードを使用し、
+返された端末位置を別の位置APIや地図APIで補正・再計算せず、そのまま使用しています。

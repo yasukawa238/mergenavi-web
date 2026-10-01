@@ -18,14 +18,41 @@
 </div>
 <div class="buttons"><button id="joinBtn" class="primary">Realtime接続</button><button id="copyLinkBtn">共有リンクコピー</button><button id="gpsBtn">GPS開始</button><button id="centerBtn">現在地へ</button></div>
 </section>
+
+<section class="panel testPanel">
+  <div class="panelTitle">室内テスト</div>
+  <div class="testGrid">
+    <label class="checkLabel">
+      <input id="testMode" type="checkbox">
+      テスト速度を使用
+    </label>
+    <label>本線車 Test Speed [km/h]
+      <input id="testMainSpeed" type="number" min="0" step="1" value="50">
+    </label>
+    <label>合流車 Test Speed [km/h]
+      <input id="testMergeSpeed" type="number" min="0" step="1" value="30">
+    </label>
+  </div>
+  <div class="help">
+    テストモードON時はGPS位置はそのまま使い、ETA計算に使う速度だけを指定値へ置き換えます。
+  </div>
+</section>
+
 <section class="dashboard">
 <div class="card"><div class="label">本線車 ETA</div><div id="mainEta" class="big">--.- s</div><div id="mainDetail" class="small">待機中</div></div>
 <div class="card"><div class="label">合流車 ETA</div><div id="mergeEta" class="big">--.- s</div><div id="mergeDetail" class="small">待機中</div></div>
 <div class="card instruction"><div class="label">タイミング指示</div><div id="instruction" class="instructionText neutral">WAIT</div><div id="delta" class="small">ΔT --.- s</div></div>
 </section>
 <section class="panel">
-<div class="buttons wrap"><button id="mergePointBtn">① 合流点設定</button><button id="drawRouteBtn">② 自車経路描画</button><button id="finishRouteBtn">経路確定・共有</button><button id="undoBtn">1点戻す</button><button id="clearRouteBtn" class="danger">自車経路クリア</button></div>
-<div class="help">合流点：ボタン→地図をタップ。<br>経路：走行順に地図をタップ→「経路確定・共有」。</div>
+<div class="buttons wrap">
+<button id="mergePointBtn">① 合流点設定</button>
+<button id="drawRouteBtn">② 自車経路描画</button>
+<button id="panModeBtn">地図移動</button>
+<button id="finishRouteBtn">経路確定・共有</button>
+<button id="undoBtn">1点戻す</button>
+<button id="clearRouteBtn" class="danger">自車経路クリア</button>
+</div>
+<div class="help">合流点：ボタン→地図をタップ。<br>経路描画中は1本指ドラッグを無効化し、タップを経路点として追加します。地図を動かしたい時は「地図移動」を押してください。</div>
 </section>
 <main id="map"></main>
 <section class="panel status">
@@ -34,7 +61,7 @@
 <div><b>速度:</b> <span id="speed">-- km/h</span></div>
 <div><b>残距離:</b> <span id="remaining">-- m</span></div>
 <div><b>GPS Age:</b> <span id="age">-- s</span></div>
-<div><b>Cloud Age:</b> <span id="cloudAge">-- s</span></div>
+<div><b>Cloud Age:</b> <span id="cloudAge">-- s</span></div><div><b>GPS Source:</b> <span id="gpsSource">Device Geolocation</span></div>
 </section>
 <section class="panel"><div class="small"><b>接続端末:</b> <span id="presence">--</span></div></section>
 <div id="toast" class="toast"></div>
