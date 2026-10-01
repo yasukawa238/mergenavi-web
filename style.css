@@ -18,3 +18,16 @@ button{border:0;border-radius:9px;padding:10px 12px;font-weight:700;background:#
 #panModeBtn.active{outline:2px solid #79c0ff}
 .leaflet-control-layers{font-size:13px}
 @media(max-width:760px){.testGrid{grid-template-columns:1fr 1fr}.checkLabel{grid-column:1/-1;padding-top:0}}
+
+/* v0.4.3: route drawing touch lock */
+body.route-drawing {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+body.route-drawing #map {
+  touch-action: none;
+  overscroll-behavior: none;
+}
+body.route-panning #map {
+  touch-action: pan-x pan-y;
+}

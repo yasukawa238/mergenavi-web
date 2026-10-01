@@ -10,7 +10,17 @@ const aerialLayer=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/servi
   maxZoom:20,attribution:"Tiles &copy; Esri"
 });
 streetLayer.addTo(map);
+
 L.control.layers({"地図":streetLayer,"航空写真":aerialLayer},null,{position:"topright",collapsed:false}).addTo(map);
+
+// v0.4.3: prevent the browser page itself from scrolling while route drawing.
+const mapEl=document.getElementById("map");
+mapEl.addEventListener("touchmove",(ev)=>{
+  if(mode==="drawRoute" && !panMode){
+    ev.preventDefault();
+  }
+},{passive:false});
+
 const clientId=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2);
 let channel=null,joined=false,mode=null,panMode=false,watchId=null,mergePoint=null,mergeMarker=null,currentPos=null,currentMarker=null;
 let drawPoints=[],routes={main:[],merge:[]},routeLayers={main:null,merge:null},previewLayer=null,telemetry={main:null,merge:null},speedEMA=null,lastGeo=null,lastCloudRx=0,lastGpsTimestamp=0;
@@ -61,10 +71,15 @@ $("panModeBtn").onclick=()=>{
     if(panMode){map.dragging.enable();toast("地図移動モード")}
     else{map.dragging.disable();toast("経路描画モード")}
   }
+  updateTouchLock();
 };
 $("finishRouteBtn").onclick=async()=>{if(drawPoints.length<2)return alert("経路は2点以上設定してください");const r=role();setRoute(r,drawPoints,false);await sendBroadcast("route",{role:r,points:drawPoints,sentAt:Date.now()});drawPoints=[];setMode(null);previewRoute()};
 $("undoBtn").onclick=()=>{if(mode==="drawRoute"&&drawPoints.length){drawPoints.pop();previewRoute()}};
 $("clearRouteBtn").onclick=async()=>{const r=role();setRoute(r,[],false);await sendBroadcast("route",{role:r,points:[],sentAt:Date.now()})};
+function updateTouchLock(){
+  document.body.classList.toggle("route-drawing", mode==="drawRoute" && !panMode);
+  document.body.classList.toggle("route-panning", mode==="drawRoute" && panMode);
+}
 function setMode(m){
   mode=m;
   ["mergePointBtn","drawRouteBtn"].forEach(id=>$(id).classList.remove("active"));
@@ -79,6 +94,7 @@ function setMode(m){
     panMode=false;
     $("panModeBtn").classList.remove("active");
   }
+  updateTouchLock();
 }
 map.on("click",async e=>{
   if(mode==="mergePoint"){

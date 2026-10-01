@@ -67,3 +67,13 @@ Broadcast方式なので設定はDBへ永続保存しません。
 WebブラウザからスマートフォンのGNSS受信機のRaw Measurementへ直接アクセスすることはできません。
 本版では `navigator.geolocation.watchPosition()` の高精度モードを使用し、
 返された端末位置を別の位置APIや地図APIで補正・再計算せず、そのまま使用しています。
+
+
+## v0.4.3 修正
+- スマホで経路描画時にブラウザ画面自体がスクロールする問題を修正
+- 経路描画モード:
+  - bodyスクロール禁止
+  - map上のtouchmoveをpreventDefault
+  - overscroll禁止
+  - touch-action:none
+- 「地図移動」モードではパン操作を再許可
