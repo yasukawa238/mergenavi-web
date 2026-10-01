@@ -77,3 +77,17 @@ WebブラウザからスマートフォンのGNSS受信機のRaw Measurementへ�
   - overscroll禁止
   - touch-action:none
 - 「地図移動」モードではパン操作を再許可
+
+
+## v0.4.4 修正
+- v0.4.3でスマホのタップがLeaflet clickに届かず、drawPointsへ点が追加されない問題を修正
+- touchstart/touchendでスマホのタップを直接検出
+- タップ位置を `map.containerPointToLatLng()` で地図座標へ変換
+- タップごとに「経路点 n」をトースト表示
+- タッチ後のsynthetic clickによる二重点追加を防止
+
+
+## v0.4.5 変更
+- スマホ画面上部へ `Ver 0.4.5` を常時表示
+- JavaScript側にも `APP_VERSION = "0.4.5"` を追加
+- 今後、不具合確認時に画面だけで使用版を判別可能

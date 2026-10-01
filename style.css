@@ -31,3 +31,17 @@ body.route-drawing #map {
 body.route-panning #map {
   touch-action: pan-x pan-y;
 }
+
+.titleRow{display:flex;align-items:center;gap:8px}
+.versionBadge{
+  display:inline-flex;
+  align-items:center;
+  padding:3px 7px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:800;
+  background:#30363d;
+  color:#f0f3f6;
+  border:1px solid #484f58;
+  white-space:nowrap;
+}
