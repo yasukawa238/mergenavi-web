@@ -45,3 +45,7 @@ body.route-panning #map {
   border:1px solid #484f58;
   white-space:nowrap;
 }
+
+.logStatusRow{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;margin-bottom:8px}
+#logState.recording{color:#ff7b72;font-weight:800}
+@media(max-width:760px){.logStatusRow{grid-template-columns:1fr 1fr 1fr}}

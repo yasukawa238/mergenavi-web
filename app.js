@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.4.5";
+const APP_VERSION="0.4.6";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map").setView([35.2281,138.8994],16);
@@ -25,6 +25,7 @@ mapEl.addEventListener("touchmove",(ev)=>{
 const clientId=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2);
 let channel=null,joined=false,mode=null,panMode=false,watchId=null,mergePoint=null,mergeMarker=null,currentPos=null,currentMarker=null;
 let drawPoints=[],routes={main:[],merge:[]},routeLayers={main:null,merge:null},previewLayer=null,telemetry={main:null,merge:null},speedEMA=null,lastGeo=null,lastCloudRx=0,lastGpsTimestamp=0;
+let logRecording=false, driveLog=[], logStartedAt=null, lastLogAccepted=null;
 
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove("show"),1800)}
 function randomSession(){const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let s="MN";for(let i=0;i<5;i++)s+=c[Math.floor(Math.random()*c.length)];return s}
@@ -112,6 +113,126 @@ function setMergePoint(p){mergePoint=p;if(mergeMarker)map.removeLayer(mergeMarke
 function setRoute(r,points){routes[r]=points||[];if(routeLayers[r]){map.removeLayer(routeLayers[r]);routeLayers[r]=null}if(routes[r].length>=2)routeLayers[r]=L.polyline(routes[r].map(p=>[p.lat,p.lng]),{weight:6,opacity:.85,dashArray:r==="main"?null:"10 6"}).addTo(map)}
 function previewRoute(){if(previewLayer){map.removeLayer(previewLayer);previewLayer=null}if(drawPoints.length)previewLayer=L.polyline(drawPoints.map(p=>[p.lat,p.lng]),{weight:5,opacity:.7,dashArray:"4 8"}).addTo(map)}
 
+
+function updateLogUi(){
+  $("logCount").textContent=String(driveLog.length);
+  $("logState").textContent=logRecording?"記録中":"停止中";
+  $("logState").className=logRecording?"recording":"";
+  const dur=logStartedAt?((Date.now()-logStartedAt)/1000):0;
+  $("logDuration").textContent=`${dur.toFixed(1)} s`;
+}
+
+function csvEscape(v){
+  const s=(v??"").toString();
+  return `"${s.replaceAll('"','""')}"`;
+}
+
+function downloadCsv(){
+  if(!driveLog.length){alert("ログがありません");return}
+  const cols=["timestamp","iso_time","role","lat","lng","speed_kmh","accuracy_m","heading_deg","remaining_m","eta_s","other_eta_s","delta_t_s","cloud_age_s","session_id"];
+  const lines=[cols.join(",")];
+  for(const p of driveLog){
+    lines.push([
+      p.timestamp,
+      p.iso_time,
+      p.role,
+      p.lat,
+      p.lng,
+      p.speed_kmh,
+      p.accuracy_m,
+      p.heading_deg,
+      p.remaining_m,
+      p.eta_s,
+      p.other_eta_s,
+      p.delta_t_s,
+      p.cloud_age_s,
+      p.session_id
+    ].map(csvEscape).join(","));
+  }
+  const blob=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=`MergeNavi_${sessionId()}_${role()}_${new Date().toISOString().replaceAll(":","-")}.csv`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+function buildRouteFromLog(){
+  if(driveLog.length<2){alert("経路生成には2点以上のログが必要です");return []}
+  const accepted=[];
+  let prev=null;
+  for(const p of driveLog){
+    if(!Number.isFinite(p.lat)||!Number.isFinite(p.lng))continue;
+    if(Number.isFinite(p.accuracy_m) && p.accuracy_m>30)continue;
+    const cur={lat:p.lat,lng:p.lng};
+    if(!prev){
+      accepted.push(cur); prev=cur; continue;
+    }
+    const d=haversine(prev,cur);
+    if(d<2)continue;
+    if(d>80)continue; // obvious GNSS jump for this PoC
+    accepted.push(cur);
+    prev=cur;
+  }
+  return accepted;
+}
+
+async function saveLogToSupabase(){
+  if(!driveLog.length){alert("保存するログがありません");return}
+  const payload={
+    session_id:sessionId(),
+    role:role(),
+    point_count:driveLog.length,
+    started_at:new Date(driveLog[0].timestamp).toISOString(),
+    ended_at:new Date(driveLog[driveLog.length-1].timestamp).toISOString(),
+    log_data:driveLog,
+    app_version:APP_VERSION
+  };
+  const {error}=await supabase.from("drive_logs").insert(payload);
+  if(error){
+    console.error(error);
+    alert("Supabase保存に失敗しました。\n先に同梱の supabase_setup.sql をSQL Editorで実行してください。\n\n"+error.message);
+    return;
+  }
+  toast("走行ログをSupabaseへ保存しました");
+}
+
+$("logStartBtn").onclick=()=>{
+  driveLog=[];
+  logRecording=true;
+  logStartedAt=Date.now();
+  lastLogAccepted=null;
+  updateLogUi();
+  toast("ログ記録開始");
+};
+
+$("logStopBtn").onclick=()=>{
+  logRecording=false;
+  updateLogUi();
+  toast(`ログ停止: ${driveLog.length}点`);
+};
+
+$("logClearBtn").onclick=()=>{
+  if(logRecording){alert("記録中はクリアできません");return}
+  driveLog=[];
+  logStartedAt=null;
+  lastLogAccepted=null;
+  updateLogUi();
+};
+
+$("logCsvBtn").onclick=downloadCsv;
+$("logSaveBtn").onclick=saveLogToSupabase;
+
+$("logRouteBtn").onclick=async()=>{
+  const pts=buildRouteFromLog();
+  if(pts.length<2){alert("有効な経路点が2点未満です");return}
+  const r=role();
+  setRoute(r,pts,false);
+  await sendBroadcast("route",{role:r,points:pts,sentAt:Date.now()});
+  toast(`ログから経路生成: ${pts.length}点`);
+};
+updateLogUi();
+
 $("gpsBtn").onclick=()=>{if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;$("gpsBtn").textContent="GPS開始";$("gpsStatus").textContent="停止中";return}if(!navigator.geolocation)return alert("このブラウザは位置情報非対応");
 $("gpsSource").textContent="Device Geolocation / High Accuracy";
 watchId=navigator.geolocation.watchPosition(
@@ -133,7 +254,32 @@ async function onGeo(g){
   speedEMA=sp;
   currentPos=pos;if(!currentMarker)currentMarker=L.circleMarker([pos.lat,pos.lng],{radius:8,weight:3}).addTo(map);else currentMarker.setLatLng([pos.lat,pos.lng]);const r=role();
   const calcSpeed=getEffectiveSpeed(r,speedEMA);
-  const calc=calcForRole(r,pos,calcSpeed);$("gpsStatus").textContent=`${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;$("accuracy").textContent=Number.isFinite(g.coords.accuracy)?`${g.coords.accuracy.toFixed(1)} m`:"-- m";$("speed").textContent=Number.isFinite(calcSpeed)?`${(calcSpeed*3.6).toFixed(1)} km/h`:"-- km/h";$("remaining").textContent=Number.isFinite(calc.remaining)?`${calc.remaining.toFixed(1)} m`:"-- m";const data={lat:pos.lat,lng:pos.lng,speed:Number.isFinite(calcSpeed)?calcSpeed:null,accuracy:g.coords.accuracy??null,heading:g.coords.heading??null,timestamp:ts,clientSentAt:Date.now(),remaining:calc.remaining,eta:calc.eta};telemetry[r]=data;await sendBroadcast("telemetry",{role:r,data});refreshDashboard()}
+  const calc=calcForRole(r,pos,calcSpeed);$("gpsStatus").textContent=`${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;$("accuracy").textContent=Number.isFinite(g.coords.accuracy)?`${g.coords.accuracy.toFixed(1)} m`:"-- m";$("speed").textContent=Number.isFinite(calcSpeed)?`${(calcSpeed*3.6).toFixed(1)} km/h`:"-- km/h";$("remaining").textContent=Number.isFinite(calc.remaining)?`${calc.remaining.toFixed(1)} m`:"-- m";const data={lat:pos.lat,lng:pos.lng,speed:Number.isFinite(calcSpeed)?calcSpeed:null,accuracy:g.coords.accuracy??null,heading:g.coords.heading??null,timestamp:ts,clientSentAt:Date.now(),remaining:calc.remaining,eta:calc.eta};if(logRecording){
+  const otherRole=r==="main"?"merge":"main";
+  const otherEta=Number.isFinite(telemetry[otherRole]?.eta)?telemetry[otherRole].eta:null;
+  const delta=(r==="main")
+    ? (Number.isFinite(data.eta)&&Number.isFinite(otherEta)?data.eta-otherEta:null)
+    : (Number.isFinite(otherEta)&&Number.isFinite(data.eta)?otherEta-data.eta:null);
+
+  driveLog.push({
+    timestamp:ts,
+    iso_time:new Date(ts).toISOString(),
+    role:r,
+    lat:pos.lat,
+    lng:pos.lng,
+    speed_kmh:Number.isFinite(data.speed)?data.speed*3.6:null,
+    accuracy_m:Number.isFinite(g.coords.accuracy)?g.coords.accuracy:null,
+    heading_deg:Number.isFinite(g.coords.heading)?g.coords.heading:null,
+    remaining_m:Number.isFinite(data.remaining)?data.remaining:null,
+    eta_s:Number.isFinite(data.eta)?data.eta:null,
+    other_eta_s:Number.isFinite(otherEta)?otherEta:null,
+    delta_t_s:Number.isFinite(delta)?delta:null,
+    cloud_age_s:lastCloudRx?((Date.now()-lastCloudRx)/1000):null,
+    session_id:sessionId()
+  });
+  updateLogUi();
+}
+telemetry[r]=data;await sendBroadcast("telemetry",{role:r,data});refreshDashboard()}
 $("centerBtn").onclick=()=>{if(currentPos)map.setView([currentPos.lat,currentPos.lng],18)};
 
 function toXY(p,refLat){const R=6371000,rad=Math.PI/180;return{x:R*(p.lng*rad)*Math.cos(refLat*rad),y:R*(p.lat*rad)}}
@@ -153,4 +299,4 @@ $("controlRole").onchange=refreshDashboard;
 $("testMode").onchange=()=>{toast($("testMode").checked?"テスト速度ON":"端末速度ON");};
 $("testMainSpeed").oninput=refreshDashboard;
 $("testMergeSpeed").oninput=refreshDashboard;
-setInterval(()=>{$("cloudAge").textContent=lastCloudRx?`${((Date.now()-lastCloudRx)/1000).toFixed(1)} s`:"-- s";$("age").textContent=lastGpsTimestamp?`${Math.max(0,(Date.now()-lastGpsTimestamp)/1000).toFixed(2)} s`:"-- s";refreshDashboard()},500);
+setInterval(()=>{$("cloudAge").textContent=lastCloudRx?`${((Date.now()-lastCloudRx)/1000).toFixed(1)} s`:"-- s";$("age").textContent=lastGpsTimestamp?`${Math.max(0,(Date.now()-lastGpsTimestamp)/1000).toFixed(2)} s`:"-- s";refreshDashboard();if(logRecording)updateLogUi()},500);

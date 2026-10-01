@@ -91,3 +91,42 @@ WebブラウザからスマートフォンのGNSS受信機のRaw Measurementへ�
 - スマホ画面上部へ `Ver 0.4.5` を常時表示
 - JavaScript側にも `APP_VERSION = "0.4.5"` を追加
 - 今後、不具合確認時に画面だけで使用版を判別可能
+
+
+## v0.4.6 追加
+- 走行ログ START / STOP
+- 記録点数・記録時間表示
+- CSV出力
+- Supabase `drive_logs` テーブルへ走行ログ保存
+- 走行ログから自車経路を自動生成
+- 生成経路をRealtimeで相手端末へ共有
+- Ver 0.4.6表示
+
+### ログ内容
+- timestamp / ISO時刻
+- role
+- 緯度 / 経度
+- 端末速度
+- GPS Accuracy
+- Heading
+- 合流点までの残距離
+- ETA
+- 相手車両ETA
+- ΔT
+- Cloud Age
+- Session ID
+
+### 初回のみ必要なSupabase設定
+Supabase Dashboard → SQL Editor → New query を開き、
+同梱の `supabase_setup.sql` 全文を貼り付けて Run してください。
+
+PoCではPublishable key（anon）からログ保存できるようRLS Policyを設定します。
+本運用では認証付きへ変更してください。
+
+### ログ→経路生成
+PoCの初期フィルタ:
+- Accuracy > 30m は除外
+- 前点から2m未満は間引き
+- 前点から80m超のジャンプは除外
+
+生成された経路は自車経路として即時適用され、同じSessionの相手端末へ共有されます。

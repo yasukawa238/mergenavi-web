@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.4</title>
+<title>MergeNavi Cloud v0.4.6</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-<header><div><div class="titleRow"><h1>MergeNavi Cloud</h1><span class="versionBadge">Ver 0.4.5</span></div><div class="sub">Supabase Realtime / Smartphone GPS PoC</div></div><div id="cloudBadge" class="badge off">未接続</div></header>
+<header><div><div class="titleRow"><h1>MergeNavi Cloud</h1><span class="versionBadge">Ver 0.4.6</span></div><div class="sub">Supabase Realtime / Smartphone GPS PoC</div></div><div id="cloudBadge" class="badge off">未接続</div></header>
 <section class="panel">
 <div class="grid">
 <label>Session ID<div class="sessionRow"><input id="sessionId" maxlength="20"><button id="newSessionBtn">生成</button></div></label>
@@ -54,7 +54,29 @@
 </div>
 <div class="help">合流点：ボタン→地図をタップ。<br>経路描画中はタップごとに「経路点 1」「経路点 2」…と表示されます。地図を動かしたい時は「地図移動」を押してください。</div>
 </section>
+
+<section class="panel logPanel">
+  <div class="panelTitle">走行ログ</div>
+  <div class="logStatusRow">
+    <div><b>状態:</b> <span id="logState">停止中</span></div>
+    <div><b>点数:</b> <span id="logCount">0</span></div>
+    <div><b>記録時間:</b> <span id="logDuration">0.0 s</span></div>
+  </div>
+  <div class="buttons wrap">
+    <button id="logStartBtn" class="primary">ログSTART</button>
+    <button id="logStopBtn">ログSTOP</button>
+    <button id="logSaveBtn">Supabase保存</button>
+    <button id="logCsvBtn">CSV出力</button>
+    <button id="logRouteBtn">ログから自車経路生成</button>
+    <button id="logClearBtn" class="danger">ログクリア</button>
+  </div>
+  <div class="help">
+    経路生成時は、Accuracyが悪い点・GPS飛びを除外し、約2m以上離れた点だけを採用して経路化します。
+  </div>
+</section>
+
 <main id="map"></main>
+
 <section class="panel status">
 <div><b>自車GPS:</b> <span id="gpsStatus">停止中</span></div>
 <div><b>Accuracy:</b> <span id="accuracy">-- m</span></div>
