@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MergeNavi Cloud v0.4</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header><div><h1>MergeNavi Cloud</h1><div class="sub">Supabase Realtime / Smartphone GPS PoC</div></div><div id="cloudBadge" class="badge off">未接続</div></header>
+<section class="panel">
+<div class="grid">
+<label>Session ID<div class="sessionRow"><input id="sessionId" maxlength="20"><button id="newSessionBtn">生成</button></div></label>
+<label>車両<select id="role"><option value="merge">合流車</option><option value="main">本線車</option></select></label>
+<label>速度調整する車両<select id="controlRole"><option value="merge">合流車</option><option value="main">本線車</option></select></label>
+<label>判定許容差 [s]<input id="tolerance" type="number" min="0.1" step="0.1" value="0.5"></label>
+</div>
+<div class="buttons"><button id="joinBtn" class="primary">Realtime接続</button><button id="copyLinkBtn">共有リンクコピー</button><button id="gpsBtn">GPS開始</button><button id="centerBtn">現在地へ</button></div>
+</section>
+<section class="dashboard">
+<div class="card"><div class="label">本線車 ETA</div><div id="mainEta" class="big">--.- s</div><div id="mainDetail" class="small">待機中</div></div>
+<div class="card"><div class="label">合流車 ETA</div><div id="mergeEta" class="big">--.- s</div><div id="mergeDetail" class="small">待機中</div></div>
+<div class="card instruction"><div class="label">タイミング指示</div><div id="instruction" class="instructionText neutral">WAIT</div><div id="delta" class="small">ΔT --.- s</div></div>
+</section>
+<section class="panel">
+<div class="buttons wrap"><button id="mergePointBtn">① 合流点設定</button><button id="drawRouteBtn">② 自車経路描画</button><button id="finishRouteBtn">経路確定・共有</button><button id="undoBtn">1点戻す</button><button id="clearRouteBtn" class="danger">自車経路クリア</button></div>
+<div class="help">合流点：ボタン→地図をタップ。<br>経路：走行順に地図をタップ→「経路確定・共有」。</div>
+</section>
+<main id="map"></main>
+<section class="panel status">
+<div><b>自車GPS:</b> <span id="gpsStatus">停止中</span></div>
+<div><b>Accuracy:</b> <span id="accuracy">-- m</span></div>
+<div><b>速度:</b> <span id="speed">-- km/h</span></div>
+<div><b>残距離:</b> <span id="remaining">-- m</span></div>
+<div><b>GPS Age:</b> <span id="age">-- s</span></div>
+<div><b>Cloud Age:</b> <span id="cloudAge">-- s</span></div>
+</section>
+<section class="panel"><div class="small"><b>接続端末:</b> <span id="presence">--</span></div></section>
+<div id="toast" class="toast"></div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
