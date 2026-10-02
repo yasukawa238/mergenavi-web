@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.5.3";
+const APP_VERSION="0.5.4";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map").setView([35.2281,138.8994],16);
@@ -158,6 +158,17 @@ async function releaseWakeLock(){
   }
 }
 
+
+function updateControlTargetUi(showToast=false){
+  const target=$("controlRole")?.value==="merge" ? "merge" : "main";
+  const text=target==="main" ? "本線車" : "合流車";
+  const banner=$("controlTargetBanner");
+  const targetText=$("controlTargetText");
+  if(banner)banner.className=`controlTargetBanner ${target}`;
+  if(targetText)targetText.textContent=text;
+  if(showToast)toast(`調整対象を「${text}」に設定`);
+}
+
 function collectCommonSettings(){
   return {
     controlRole:$("controlRole").value,
@@ -181,6 +192,7 @@ function applyCommonSettings(s){
   if(Number.isFinite(s.testMergeSpeed))$("testMergeSpeed").value=s.testMergeSpeed;
   if(Number.isFinite(s.testMergeRemaining))$("testMergeRemaining").value=s.testMergeRemaining;
   if(s.mergePoint)setMergePoint(s.mergePoint,false);
+  updateControlTargetUi(false);
   refreshDashboard();
 }
 
@@ -198,6 +210,7 @@ $("sessionId").value=randomSession();
 const params=new URLSearchParams(location.search);if(params.get("session"))$("sessionId").value=sanitizeSession(params.get("session"));
 updateRoleTheme();
 updateMasterUi();
+updateControlTargetUi(false);
 $("newSessionBtn").onclick=()=>{$("sessionId").value=randomSession()};
 $("copySessionBtn").onclick=async()=>{
   const sid=sessionId();
@@ -750,7 +763,11 @@ function renderVehicle(r,data){
 }
 function refreshDashboard(){const m=telemetry.main,g=telemetry.merge;renderVehicle("main",m);renderVehicle("merge",g);const inst=$("instruction"),d=$("delta"),tol=Math.max(.1,parseFloat($("tolerance").value)||.5),control=$("controlRole").value;if(!m||!g||!Number.isFinite(m.eta)||!Number.isFinite(g.eta)){inst.textContent="WAIT";inst.className="instructionText neutral";d.textContent="ΔT --.- s";return}const delta=m.eta-g.eta;d.textContent=`ΔT 本線-合流 = ${delta>=0?"+":""}${delta.toFixed(2)} s`;if(Math.abs(delta)<=tol){inst.textContent="KEEP";inst.className="instructionText ok";return}if(control==="main"){if(delta<0){inst.textContent="本線車 SLOW";inst.className="instructionText slow"}else{inst.textContent="本線車 FAST";inst.className="instructionText fast"}}else{if(delta<0){inst.textContent="合流車 FAST";inst.className="instructionText fast"}else{inst.textContent="合流車 SLOW";inst.className="instructionText slow"}}}
 $("tolerance").oninput=async()=>{refreshDashboard();if(isMaster())await publishCommonSettings();};
-$("controlRole").onchange=async()=>{refreshDashboard();if(isMaster())await publishCommonSettings();};
+$("controlRole").onchange=async()=>{
+  updateControlTargetUi(true);
+  refreshDashboard();
+  if(isMaster())await publishCommonSettings();
+};
 $("testMode").onchange=async()=>{
   if(!isMaster())return;
   await publishCommonSettings();

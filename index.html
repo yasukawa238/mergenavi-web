@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.5.3</title>
+<title>MergeNavi Cloud v0.5.4</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -12,7 +12,7 @@
   <div>
     <div class="titleRow">
       <h1>MergeNavi Cloud</h1>
-      <span class="versionBadge">Ver 0.5.3</span>
+      <span class="versionBadge">Ver 0.5.4</span>
       <span id="roleBadge" class="roleBadge merge">合流車</span><span id="masterBadge" class="masterBadge follower">FOLLOWER</span>
     </div>
     <div class="sub">Supabase Realtime / Smartphone GPS PoC</div>
@@ -69,7 +69,11 @@
 <section class="dashboard">
 <div class="card"><div class="label">本線車 ETA</div><div id="mainEta" class="big">--.- s</div><div id="mainDetail" class="small">待機中</div></div>
 <div class="card"><div class="label">合流車 ETA</div><div id="mergeEta" class="big">--.- s</div><div id="mergeDetail" class="small">待機中</div></div>
-<div class="card instruction"><div class="label">タイミング指示</div><div id="instruction" class="instructionText neutral">WAIT</div><div id="delta" class="small">ΔT --.- s</div></div>
+<div class="card instruction"><div class="label">タイミング指示</div><div id="controlTargetBanner" class="controlTargetBanner main">
+  <span class="controlTargetLabel">調整対象</span>
+  <span id="controlTargetText" class="controlTargetText">本線車</span>
+</div>
+<div id="instruction" class="instructionText neutral">WAIT</div><div id="delta" class="small">ΔT --.- s</div></div>
 </section>
 
 
