@@ -201,3 +201,144 @@ body.role-merge .commonSettingAction:disabled{
     grid-column:1/-1;
   }
 }
+
+/* v0.5.2: MASTER/FOLLOWER visibility */
+.masterBanner{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  padding:10px 14px 11px;
+  border-bottom:3px solid transparent;
+  transition:.15s ease;
+}
+.masterBanner.master{
+  background:linear-gradient(90deg,#0b4fb3,#1877d2);
+  border-bottom-color:#69b6ff;
+  color:#fff;
+  box-shadow:0 5px 18px rgba(24,119,210,.28);
+}
+.masterBanner.follower{
+  background:linear-gradient(90deg,#a84f00,#e27600);
+  border-bottom-color:#ffbd66;
+  color:#fff;
+  box-shadow:0 5px 18px rgba(226,118,0,.25);
+}
+.masterBannerMain{
+  font-size:26px;
+  line-height:1;
+  font-weight:950;
+  letter-spacing:.08em;
+}
+.masterBannerSub{
+  font-size:15px;
+  font-weight:900;
+}
+body.role-main{
+  box-shadow:inset 0 0 0 4px rgba(59,130,246,.35);
+}
+body.role-merge{
+  box-shadow:inset 0 0 0 4px rgba(245,158,11,.35);
+}
+
+/* Wake lock button state */
+#wakeLockBtn.wakeOn{
+  background:#1f6f43;
+  box-shadow:0 0 0 2px rgba(86,211,100,.20);
+}
+#wakeLockBtn.wakeUnsupported{
+  opacity:.65;
+}
+
+/* Log naming */
+.logNameRow{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+  align-items:end;
+  margin:8px 0 2px;
+}
+.logNameRow label{margin:0}
+.logNameRow button{height:38px}
+@media(max-width:760px){
+  .masterBannerMain{font-size:23px}
+  .masterBannerSub{font-size:14px}
+  .logNameRow{grid-template-columns:1fr auto}
+}
+
+/* v0.5.3 connection UI */
+.sessionRow{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  gap:6px;
+  align-items:end;
+}
+.sessionRow input{min-width:0}
+
+.connectionDevices{
+  margin-top:10px;
+  padding:9px 10px;
+  border:1px solid var(--role-border);
+  border-radius:10px;
+  background:var(--role-accent-soft);
+}
+.connectionDevicesTitle{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+  margin-bottom:6px;
+  font-size:12px;
+  font-weight:900;
+}
+.presenceCount{
+  padding:2px 7px;
+  border-radius:999px;
+  background:#30363d;
+  color:#fff;
+  font-size:11px;
+}
+.presenceDevices{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  min-height:26px;
+  align-items:center;
+  font-size:12px;
+  color:#c9d1d9;
+}
+.presenceChip{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:4px 8px;
+  border-radius:999px;
+  font-weight:800;
+  border:1px solid transparent;
+}
+.presenceChip.main{
+  background:rgba(59,130,246,.18);
+  border-color:rgba(59,130,246,.42);
+  color:#9dccff;
+}
+.presenceChip.merge{
+  background:rgba(245,158,11,.18);
+  border-color:rgba(245,158,11,.42);
+  color:#ffc46b;
+}
+.presenceChip.self::after{
+  content:"自車";
+  padding:1px 4px;
+  border-radius:999px;
+  background:rgba(255,255,255,.10);
+  font-size:9px;
+}
+
+@media(max-width:760px){
+  .sessionRow{
+    grid-template-columns:minmax(0,1fr) auto auto;
+  }
+  .sessionRow button{
+    padding-left:9px;
+    padding-right:9px;
+  }
+}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.5.1</title>
+<title>MergeNavi Cloud v0.5.3</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -12,21 +12,32 @@
   <div>
     <div class="titleRow">
       <h1>MergeNavi Cloud</h1>
-      <span class="versionBadge">Ver 0.5.1</span>
+      <span class="versionBadge">Ver 0.5.3</span>
       <span id="roleBadge" class="roleBadge merge">合流車</span><span id="masterBadge" class="masterBadge follower">FOLLOWER</span>
     </div>
     <div class="sub">Supabase Realtime / Smartphone GPS PoC</div>
   </div>
   <div id="cloudBadge" class="badge off">未接続</div>
 </header>
+<div id="masterBanner" class="masterBanner follower">
+  <div class="masterBannerMain">FOLLOWER</div>
+  <div class="masterBannerSub">合流車</div>
+</div>
 <section class="panel">
 <div class="grid">
-<label>Session ID<div class="sessionRow"><input id="sessionId" maxlength="20"><button id="newSessionBtn">生成</button></div></label>
+<label>Session ID<div class="sessionRow"><input id="sessionId" maxlength="20"><button id="copySessionBtn">IDコピー</button><button id="newSessionBtn">生成</button></div></label>
 <label>車両<select id="role"><option value="merge">合流車</option><option value="main">本線車</option></select></label>
 <label>速度調整する車両<select id="controlRole" class="commonSetting"><option value="merge">合流車</option><option value="main">本線車</option></select></label>
 <label>判定許容差 [s]<input id="tolerance" class="commonSetting" type="number" min="0.1" step="0.1" value="0.5"></label>
 </div>
-<div class="buttons"><button id="joinBtn" class="primary">Realtime接続</button><button id="copyLinkBtn">共有リンクコピー</button><button id="gpsBtn">GPS開始</button></div>
+<div class="buttons"><button id="joinBtn" class="primary">Realtime接続</button><button id="copyLinkBtn">共有リンクコピー</button><button id="gpsBtn">GPS開始</button><button id="wakeLockBtn">画面ロック防止 OFF</button></div>
+<div class="connectionDevices">
+  <div class="connectionDevicesTitle">
+    <span>接続機器</span>
+    <span id="presenceCount" class="presenceCount">0台</span>
+  </div>
+  <div id="presence" class="presenceDevices">未接続</div>
+</div>
 </section>
 
 <section class="panel testPanel">
@@ -86,13 +97,19 @@
 <div><b>GPS Age:</b> <span id="age">-- s</span></div>
 <div><b>Cloud Age:</b> <span id="cloudAge">-- s</span></div><div><b>GPS Source:</b> <span id="gpsSource">Device Geolocation</span></div>
 </section>
-<section class="panel"><div class="small"><b>接続端末:</b> <span id="presence">--</span></div></section>
+
 <section class="panel logPanel">
   <div class="panelTitle">走行ログ</div>
   <div class="logStatusRow">
     <div><b>状態:</b> <span id="logState">停止中</span></div>
     <div><b>点数:</b> <span id="logCount">0</span></div>
     <div><b>記録時間:</b> <span id="logDuration">0.0 s</span></div>
+  </div>
+  <div class="logNameRow">
+    <label>ログ名
+      <input id="logName" maxlength="60" placeholder="例：本線A→B 基準50km/h">
+    </label>
+    <button id="autoLogNameBtn">自動入力</button>
   </div>
   <div class="buttons wrap">
     <button id="logStartBtn" class="primary">ログSTART</button>

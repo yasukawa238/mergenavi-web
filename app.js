@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.5.1";
+const APP_VERSION="0.5.3";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map").setView([35.2281,138.8994],16);
@@ -57,6 +57,7 @@ let channel=null,joined=false,mode=null,panMode=false,watchId=null,mergePoint=nu
 let drawPoints=[],routes={main:[],merge:[]},routeLayers={main:null,merge:null},previewLayer=null,telemetry={main:null,merge:null},speedEMA=null,lastGeo=null,lastCloudRx=0,lastGpsTimestamp=0;
 let logRecording=false, driveLog=[], logStartedAt=null, lastLogAccepted=null;
 let cloudLogs=[];
+let wakeLockSentinel=null, wakeLockWanted=false;
 
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove("show"),1800)}
 function randomSession(){const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let s="MN";for(let i=0;i<5;i++)s+=c[Math.floor(Math.random()*c.length)];return s}
@@ -82,6 +83,14 @@ function updateMasterUi(){
     badge.textContent=master?"MASTER":"FOLLOWER";
     badge.className=`masterBadge ${master?"master":"follower"}`;
   }
+  const banner=$("masterBanner");
+  if(banner){
+    banner.className=`masterBanner ${master?"master":"follower"}`;
+    const main=banner.querySelector(".masterBannerMain");
+    const sub=banner.querySelector(".masterBannerSub");
+    if(main)main.textContent=master?"MASTER":"FOLLOWER";
+    if(sub)sub.textContent=master?"本線車":"合流車";
+  }
 
   for(const el of document.querySelectorAll(".commonSetting")){
     el.disabled=!master;
@@ -95,6 +104,57 @@ function updateMasterUi(){
     note.innerHTML=master
       ? 'この端末が <b>MASTER</b> です。共通設定を合流車へ配信します。'
       : '共通設定は <b>本線車 MASTER</b> から自動反映されます。';
+  }
+}
+
+
+async function requestWakeLock(){
+  if(!("wakeLock" in navigator)){
+    const btn=$("wakeLockBtn");
+    if(btn){
+      btn.textContent="画面ロック防止 非対応";
+      btn.classList.remove("wakeOn");
+      btn.classList.add("wakeUnsupported");
+    }
+    wakeLockWanted=false;
+    return;
+  }
+  try{
+    wakeLockSentinel=await navigator.wakeLock.request("screen");
+    const btn=$("wakeLockBtn");
+    if(btn){
+      btn.textContent="画面ロック防止 ON";
+      btn.classList.add("wakeOn");
+      btn.classList.remove("wakeUnsupported");
+    }
+    wakeLockSentinel.addEventListener("release",()=>{
+      wakeLockSentinel=null;
+      const b=$("wakeLockBtn");
+      if(b && !wakeLockWanted){
+        b.textContent="画面ロック防止 OFF";
+        b.classList.remove("wakeOn");
+      }
+    });
+  }catch(err){
+    console.warn("Wake Lock request failed",err);
+    const btn=$("wakeLockBtn");
+    if(btn){
+      btn.textContent="画面ロック防止 取得失敗";
+      btn.classList.remove("wakeOn");
+    }
+  }
+}
+
+async function releaseWakeLock(){
+  wakeLockWanted=false;
+  if(wakeLockSentinel){
+    try{await wakeLockSentinel.release();}catch{}
+    wakeLockSentinel=null;
+  }
+  const btn=$("wakeLockBtn");
+  if(btn){
+    btn.textContent="画面ロック防止 OFF";
+    btn.classList.remove("wakeOn");
   }
 }
 
@@ -139,8 +199,27 @@ const params=new URLSearchParams(location.search);if(params.get("session"))$("se
 updateRoleTheme();
 updateMasterUi();
 $("newSessionBtn").onclick=()=>{$("sessionId").value=randomSession()};
+$("copySessionBtn").onclick=async()=>{
+  const sid=sessionId();
+  if(!sid)return alert("Session IDを入力してください");
+  try{
+    await navigator.clipboard.writeText(sid);
+    toast(`Session ID「${sid}」をコピーしました`);
+  }catch{
+    prompt("このSession IDをコピーしてください",sid);
+  }
+};
 
-async function leaveChannel(){if(channel){try{await channel.untrack()}catch{};try{await supabase.removeChannel(channel)}catch{};channel=null}joined=false}
+
+async function leaveChannel(){
+  if(channel){
+    try{await channel.untrack()}catch{}
+    try{await supabase.removeChannel(channel)}catch{}
+    channel=null;
+  }
+  joined=false;
+  updatePresenceText();
+}
 
 $("joinBtn").onclick=async()=>{
  const sid=sessionId(); if(!sid)return alert("Session IDを入力してください");
@@ -161,6 +240,7 @@ $("joinBtn").onclick=async()=>{
  .on("presence",{event:"leave"},updatePresenceText)
  .subscribe(async status=>{
    if(status==="SUBSCRIBED"){joined=true;$("cloudBadge").textContent="Realtime接続";$("cloudBadge").className="badge on";await channel.track({clientId,role:role(),joinedAt:Date.now()});
+    updatePresenceText();
    if(isMaster()){
      await publishCommonSettings();
      await sendState();
@@ -211,7 +291,44 @@ function applyRemoteState(s){
   if(s.telemetry?.merge)telemetry.merge=s.telemetry.merge;
   refreshDashboard();
 }
-function updatePresenceText(){if(!channel){$("presence").textContent="--";return}const st=channel.presenceState(),rows=[];for(const a of Object.values(st))for(const p of a)rows.push(`${p.role==="main"?"本線車":"合流車"}:${String(p.clientId).slice(0,5)}`);$("presence").textContent=rows.length?rows.join(" / "):"--"}
+function updatePresenceText(){
+  const box=$("presence");
+  const count=$("presenceCount");
+  if(!box)return;
+
+  if(!channel || !joined){
+    box.textContent="未接続";
+    if(count)count.textContent="0台";
+    return;
+  }
+
+  const st=channel.presenceState();
+  const rows=[];
+  for(const arr of Object.values(st)){
+    for(const p of arr){
+      if(!p?.clientId)continue;
+      rows.push(p);
+    }
+  }
+
+  if(count)count.textContent=`${rows.length}台`;
+
+  if(!rows.length){
+    box.textContent="接続端末を確認中...";
+    return;
+  }
+
+  box.innerHTML="";
+  rows
+    .sort((a,b)=>(a.role==="main"?0:1)-(b.role==="main"?0:1))
+    .forEach(p=>{
+      const chip=document.createElement("span");
+      const r=p.role==="main"?"main":"merge";
+      chip.className=`presenceChip ${r}${p.clientId===clientId?" self":""}`;
+      chip.textContent=`${r==="main"?"本線車":"合流車"} · ${String(p.clientId).slice(0,5)}`;
+      box.appendChild(chip);
+    });
+}
 
 $("mergePointBtn").onclick=()=>setMode("mergePoint");
 $("drawRouteBtn").onclick=()=>{drawPoints=[];panMode=false;setMode("drawRoute");previewRoute()};
@@ -266,6 +383,15 @@ function setMergePoint(p){mergePoint=p;if(mergeMarker)map.removeLayer(mergeMarke
 function setRoute(r,points){routes[r]=points||[];if(routeLayers[r]){map.removeLayer(routeLayers[r]);routeLayers[r]=null}if(routes[r].length>=2)routeLayers[r]=L.polyline(routes[r].map(p=>[p.lat,p.lng]),{weight:6,opacity:.85,dashArray:r==="main"?null:"10 6"}).addTo(map)}
 function previewRoute(){if(previewLayer){map.removeLayer(previewLayer);previewLayer=null}if(drawPoints.length)previewLayer=L.polyline(drawPoints.map(p=>[p.lat,p.lng]),{weight:5,opacity:.7,dashArray:"4 8"}).addTo(map)}
 
+
+
+function makeDefaultLogName(){
+  const d=new Date();
+  const pad=n=>String(n).padStart(2,"0");
+  const dt=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+  const roleText=role()==="main"?"本線":"合流";
+  return `${roleText}_${dt}`;
+}
 
 function updateLogUi(){
   $("logCount").textContent=String(driveLog.length);
@@ -336,7 +462,9 @@ function buildRouteFromLog(){
 
 async function saveLogToSupabase(){
   if(!driveLog.length){alert("保存するログがありません");return}
+  const nameRaw=$("logName")?.value?.trim() || "";
   const payload={
+    log_name:nameRaw || makeDefaultLogName(),
     session_id:sessionId(),
     role:role(),
     point_count:driveLog.length,
@@ -352,14 +480,17 @@ async function saveLogToSupabase(){
     return;
   }
 
-  toast("走行ログをSupabaseへ保存しました");
+  toast(`走行ログ「${payload.log_name}」を保存しました`);
 }
 
 function formatCloudLogLabel(row){
   const d=new Date(row.started_at || row.created_at);
   const dateText=Number.isNaN(d.getTime()) ? "日時不明" : d.toLocaleString("ja-JP");
   const roleText=row.role==="main"?"本線":"合流";
-  return `${dateText} / ${roleText} / ${row.point_count ?? "?"}点 / ${row.session_id ?? "-"}`;
+  const name=(row.log_name || "").trim();
+  return name
+    ? `${name}｜${dateText} / ${roleText} / ${row.point_count ?? "?"}点`
+    : `${dateText} / ${roleText} / ${row.point_count ?? "?"}点 / ${row.session_id ?? "-"}`;
 }
 
 function clearCloudLogList(){
@@ -380,7 +511,7 @@ async function loadCloudLogs(){
 
   const {data,error}=await supabase
     .from("drive_logs")
-    .select("id,created_at,session_id,role,point_count,started_at,ended_at,app_version,log_data")
+    .select("id,created_at,log_name,session_id,role,point_count,started_at,ended_at,app_version,log_data")
     .eq("role",r)
     .order("created_at",{ascending:false})
     .limit(30);
@@ -440,7 +571,11 @@ async function applySelectedCloudLogAsRoute(){
   toast(`保存ログ→自車経路: ${pts.length}点`);
 }
 
+$("autoLogNameBtn").onclick=()=>{
+  $("logName").value=makeDefaultLogName();
+};
 $("logStartBtn").onclick=()=>{
+  if(!$("logName").value.trim())$("logName").value=makeDefaultLogName();
   driveLog=[];
   logRecording=true;
   logStartedAt=Date.now();
@@ -482,6 +617,24 @@ $("logRouteBtn").onclick=async()=>{
   toast(`端末内ログから経路生成: ${pts.length}点（SQL不要）`);
 };
 updateLogUi();
+
+
+$("wakeLockBtn").onclick=async()=>{
+  if(wakeLockWanted){
+    await releaseWakeLock();
+    toast("画面ロック防止 OFF");
+  }else{
+    wakeLockWanted=true;
+    await requestWakeLock();
+    if(wakeLockSentinel)toast("画面ロック防止 ON");
+  }
+};
+
+document.addEventListener("visibilitychange",async()=>{
+  if(document.visibilityState==="visible" && wakeLockWanted && !wakeLockSentinel){
+    await requestWakeLock();
+  }
+});
 
 $("gpsBtn").onclick=()=>{if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;$("gpsBtn").textContent="GPS開始";$("gpsStatus").textContent="停止中";return}if(!navigator.geolocation)return alert("このブラウザは位置情報非対応");
 $("gpsSource").textContent="Device Geolocation / High Accuracy";
