@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.4.6";
+const APP_VERSION="0.4.8";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map").setView([35.2281,138.8994],16);
@@ -14,12 +14,42 @@ streetLayer.addTo(map);
 
 L.control.layers({"地図":streetLayer,"航空写真":aerialLayer},null,{position:"topright",collapsed:false}).addTo(map);
 
-// v0.4.3: prevent the browser page itself from scrolling while route drawing.
+// v0.4.7: smartphone route drawing touch handling.
 const mapEl=document.getElementById("map");
-mapEl.addEventListener("touchmove",(ev)=>{
-  if(mode==="drawRoute" && !panMode){
+let touchStartInfo=null;
+let lastTouchAddedAt=0;
+
+mapEl.addEventListener("touchstart",(ev)=>{
+  if(mode==="drawRoute" && !panMode && ev.touches.length===1){
+    const t=ev.touches[0];
+    touchStartInfo={x:t.clientX,y:t.clientY,time:Date.now()};
     ev.preventDefault();
   }
+},{passive:false});
+
+mapEl.addEventListener("touchmove",(ev)=>{
+  if(mode==="drawRoute" && !panMode) ev.preventDefault();
+},{passive:false});
+
+mapEl.addEventListener("touchend",(ev)=>{
+  if(mode!=="drawRoute" || panMode || !touchStartInfo) return;
+  ev.preventDefault();
+  const t=ev.changedTouches && ev.changedTouches[0];
+  if(!t){touchStartInfo=null;return;}
+  const dx=t.clientX-touchStartInfo.x;
+  const dy=t.clientY-touchStartInfo.y;
+  const dist=Math.hypot(dx,dy);
+  const dt=Date.now()-touchStartInfo.time;
+  if(dist<=18 && dt<=800){
+    const rect=mapEl.getBoundingClientRect();
+    const pt=L.point(t.clientX-rect.left,t.clientY-rect.top);
+    const latlng=map.containerPointToLatLng(pt);
+    drawPoints.push({lat:latlng.lat,lng:latlng.lng});
+    previewRoute();
+    lastTouchAddedAt=Date.now();
+    toast(`経路点 ${drawPoints.length}`);
+  }
+  touchStartInfo=null;
 },{passive:false});
 
 const clientId=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2);
@@ -44,7 +74,7 @@ $("joinBtn").onclick=async()=>{
  channel=supabase.channel(`mergenavi:${sid}`,{config:{broadcast:{self:false,ack:true},presence:{key:clientId}}});
  channel
  .on("broadcast",{event:"state"},({payload})=>{lastCloudRx=Date.now();applyRemoteState(payload)})
- .on("broadcast",{event:"telemetry"},({payload})=>{lastCloudRx=Date.now();if(payload?.role&&payload?.data){telemetry[payload.role]=payload.data;refreshDashboard()}})
+ .on("broadcast",{event:"telemetry"},({payload})=>{lastCloudRx=Date.now();if(payload?.role && Object.prototype.hasOwnProperty.call(payload,"data")){telemetry[payload.role]=payload.data;refreshDashboard()}})
  .on("broadcast",{event:"mergePoint"},({payload})=>{lastCloudRx=Date.now();if(payload?.point)setMergePoint(payload.point,false)})
  .on("broadcast",{event:"route"},({payload})=>{lastCloudRx=Date.now();if(payload?.role&&Array.isArray(payload?.points))setRoute(payload.role,payload.points,false)})
  .on("broadcast",{event:"requestState"},async()=>{lastCloudRx=Date.now();if(joined)await sendState()})
@@ -52,11 +82,11 @@ $("joinBtn").onclick=async()=>{
  .on("presence",{event:"join"},updatePresenceText)
  .on("presence",{event:"leave"},updatePresenceText)
  .subscribe(async status=>{
-   if(status==="SUBSCRIBED"){joined=true;$("cloudBadge").textContent="Realtime接続";$("cloudBadge").className="badge on";await channel.track({clientId,role:role(),joinedAt:Date.now()});await sendBroadcast("requestState",{from:clientId});toast(`Session ${sid} に接続`)}
+   if(status==="SUBSCRIBED"){joined=true;$("cloudBadge").textContent="Realtime接続";$("cloudBadge").className="badge on";await channel.track({clientId,role:role(),joinedAt:Date.now()});await sendBroadcast("requestState",{from:clientId});if($("testMode").checked)await publishIndoorTest();toast(`Session ${sid} に接続`)}
    else if(["CHANNEL_ERROR","TIMED_OUT","CLOSED"].includes(status)){joined=false;$("cloudBadge").textContent=status;$("cloudBadge").className="badge off"}
  });
 };
-$("role").onchange=async()=>{if(joined&&channel)await channel.track({clientId,role:role(),joinedAt:Date.now()})};
+$("role").onchange=async()=>{if(joined&&channel)await channel.track({clientId,role:role(),joinedAt:Date.now()});if($("testMode").checked)await publishIndoorTest()};
 $("copyLinkBtn").onclick=async()=>{const u=new URL(location.href);u.searchParams.set("session",sessionId());try{await navigator.clipboard.writeText(u.toString());toast("共有リンクをコピーしました")}catch{prompt("このURLを共有してください",u.toString())}};
 
 async function sendBroadcast(event,payload){if(joined&&channel)await channel.send({type:"broadcast",event,payload})}
@@ -105,8 +135,10 @@ map.on("click",async e=>{
     await sendBroadcast("mergePoint",{point:p,sentAt:Date.now()});
     setMode(null);
   }else if(mode==="drawRoute" && !panMode){
+    if(Date.now()-lastTouchAddedAt<700) return;
     drawPoints.push({lat:e.latlng.lat,lng:e.latlng.lng});
     previewRoute();
+    toast(`経路点 ${drawPoints.length}`);
   }
 });
 function setMergePoint(p){mergePoint=p;if(mergeMarker)map.removeLayer(mergeMarker);mergeMarker=L.marker([p.lat,p.lng]).addTo(map).bindPopup("合流点")}
@@ -191,7 +223,7 @@ async function saveLogToSupabase(){
   const {error}=await supabase.from("drive_logs").insert(payload);
   if(error){
     console.error(error);
-    alert("Supabase保存に失敗しました。\n先に同梱の supabase_setup.sql をSQL Editorで実行してください。\n\n"+error.message);
+    alert("クラウド保存の初期設定が未完了です。\n\nログ→自車経路生成にはSQL設定は不要です。\nクラウド保存を使う場合だけ、同梱の supabase_setup.sql をSupabaseのSQL Editorで一度実行してください。\n\n"+error.message);
     return;
   }
   toast("走行ログをSupabaseへ保存しました");
@@ -229,7 +261,7 @@ $("logRouteBtn").onclick=async()=>{
   const r=role();
   setRoute(r,pts,false);
   await sendBroadcast("route",{role:r,points:pts,sentAt:Date.now()});
-  toast(`ログから経路生成: ${pts.length}点`);
+  toast(`端末内ログから経路生成: ${pts.length}点（SQL不要）`);
 };
 updateLogUi();
 
@@ -284,19 +316,84 @@ $("centerBtn").onclick=()=>{if(currentPos)map.setView([currentPos.lat,currentPos
 
 function toXY(p,refLat){const R=6371000,rad=Math.PI/180;return{x:R*(p.lng*rad)*Math.cos(refLat*rad),y:R*(p.lat*rad)}}
 function projectPointToRoute(p,route){if(!route||route.length<2)return null;const refLat=p.lat,P=toXY(p,refLat);let cum=0,best=null;for(let i=0;i<route.length-1;i++){const A=toXY(route[i],refLat),B=toXY(route[i+1],refLat),vx=B.x-A.x,vy=B.y-A.y,wx=P.x-A.x,wy=P.y-A.y,len2=vx*vx+vy*vy,t=len2?Math.max(0,Math.min(1,(wx*vx+wy*vy)/len2)):0,qx=A.x+t*vx,qy=A.y+t*vy,dx=P.x-qx,dy=P.y-qy,d2=dx*dx+dy*dy,segLen=Math.sqrt(len2);if(!best||d2<best.d2)best={d2,s:cum+t*segLen};cum+=segLen}return{...best,total:cum}}
+function getTestValues(r){
+  const speedKmh=r==="main"?parseFloat($("testMainSpeed").value):parseFloat($("testMergeSpeed").value);
+  const remaining=r==="main"?parseFloat($("testMainRemaining").value):parseFloat($("testMergeRemaining").value);
+  const speed=Number.isFinite(speedKmh)?speedKmh/3.6:null;
+  return{
+    speed,
+    remaining:Number.isFinite(remaining)?Math.max(0,remaining):null
+  };
+}
 function getEffectiveSpeed(r,deviceSpeed){
-  if($("testMode").checked){
-    const kmh=r==="main"?parseFloat($("testMainSpeed").value):parseFloat($("testMergeSpeed").value);
-    return Number.isFinite(kmh)?kmh/3.6:null;
-  }
+  if($("testMode").checked) return getTestValues(r).speed;
   return Number.isFinite(deviceSpeed)?deviceSpeed:null;
 }
-function calcForRole(r,pos,sp){const rt=routes[r];if(!mergePoint||!rt||rt.length<2||!pos)return{remaining:null,eta:null};const cur=projectPointToRoute(pos,rt),mer=projectPointToRoute(mergePoint,rt);if(!cur||!mer)return{remaining:null,eta:null};const remaining=Math.max(0,mer.s-cur.s),eta=Number.isFinite(sp)&&sp>.8?remaining/sp:null;return{remaining,eta}}
-function renderVehicle(r,data){const e=$(r+"Eta"),d=$(r+"Detail");if(!data){e.textContent="--.- s";d.textContent="待機中";return}e.textContent=Number.isFinite(data.eta)?`${data.eta.toFixed(1)} s`:"--.- s";const kmh=Number.isFinite(data.speed)?data.speed*3.6:null,age=Number.isFinite(data.clientSentAt)?(Date.now()-data.clientSentAt)/1000:null;d.textContent=`${kmh!=null?kmh.toFixed(1)+" km/h":"-- km/h"} / ${Number.isFinite(data.remaining)?data.remaining.toFixed(0)+" m":"-- m"}${age!=null?" / "+age.toFixed(1)+"s old":""}`}
+function calcForRole(r,pos,sp){
+  if($("testMode").checked){
+    const t=getTestValues(r);
+    const eta=Number.isFinite(t.speed)&&t.speed>0.01&&Number.isFinite(t.remaining)?t.remaining/t.speed:null;
+    return{remaining:t.remaining,eta};
+  }
+  const rt=routes[r];
+  if(!mergePoint||!rt||rt.length<2||!pos)return{remaining:null,eta:null};
+  const cur=projectPointToRoute(pos,rt),mer=projectPointToRoute(mergePoint,rt);
+  if(!cur||!mer)return{remaining:null,eta:null};
+  const remaining=Math.max(0,mer.s-cur.s);
+  const eta=Number.isFinite(sp)&&sp>.8?remaining/sp:null;
+  return{remaining,eta};
+}
+
+async function publishIndoorTest(){
+  if(!$("testMode").checked) return;
+  const now=Date.now();
+  for(const r of ["main","merge"]){
+    const t=getTestValues(r);
+    const eta=Number.isFinite(t.speed)&&t.speed>0.01&&Number.isFinite(t.remaining)?t.remaining/t.speed:null;
+    const data={
+      lat:null,lng:null,
+      speed:t.speed,
+      accuracy:null,heading:null,
+      timestamp:now,
+      clientSentAt:now,
+      remaining:t.remaining,
+      eta,
+      testMode:true
+    };
+    telemetry[r]=data;
+    await sendBroadcast("telemetry",{role:r,data});
+  }
+  $("gpsSource").textContent="Indoor Test / GPS bypass for ETA";
+  const own=getTestValues(role());
+  $("speed").textContent=Number.isFinite(own.speed)?`${(own.speed*3.6).toFixed(1)} km/h`:"-- km/h";
+  $("remaining").textContent=Number.isFinite(own.remaining)?`${own.remaining.toFixed(1)} m`:"-- m";
+  refreshDashboard();
+}
+function renderVehicle(r,data){
+  const e=$(r+"Eta"),d=$(r+"Detail");
+  if(!data){e.textContent="--.- s";d.textContent="待機中";return}
+  e.textContent=Number.isFinite(data.eta)?`${data.eta.toFixed(1)} s`:"--.- s";
+  const kmh=Number.isFinite(data.speed)?data.speed*3.6:null;
+  const age=Number.isFinite(data.clientSentAt)?(Date.now()-data.clientSentAt)/1000:null;
+  d.innerHTML=`${kmh!=null?kmh.toFixed(1)+" km/h":"-- km/h"} / ${Number.isFinite(data.remaining)?data.remaining.toFixed(0)+" m":"-- m"}${data.testMode?'<span class="testTag">TEST</span>':(age!=null?" / "+age.toFixed(1)+"s old":"")}`;
+}
 function refreshDashboard(){const m=telemetry.main,g=telemetry.merge;renderVehicle("main",m);renderVehicle("merge",g);const inst=$("instruction"),d=$("delta"),tol=Math.max(.1,parseFloat($("tolerance").value)||.5),control=$("controlRole").value;if(!m||!g||!Number.isFinite(m.eta)||!Number.isFinite(g.eta)){inst.textContent="WAIT";inst.className="instructionText neutral";d.textContent="ΔT --.- s";return}const delta=m.eta-g.eta;d.textContent=`ΔT 本線-合流 = ${delta>=0?"+":""}${delta.toFixed(2)} s`;if(Math.abs(delta)<=tol){inst.textContent="KEEP";inst.className="instructionText ok";return}if(control==="main"){if(delta<0){inst.textContent="本線車 SLOW";inst.className="instructionText slow"}else{inst.textContent="本線車 FAST";inst.className="instructionText fast"}}else{if(delta<0){inst.textContent="合流車 FAST";inst.className="instructionText fast"}else{inst.textContent="合流車 SLOW";inst.className="instructionText slow"}}}
 $("tolerance").oninput=refreshDashboard;
 $("controlRole").onchange=refreshDashboard;
-$("testMode").onchange=()=>{toast($("testMode").checked?"テスト速度ON":"端末速度ON");};
-$("testMainSpeed").oninput=refreshDashboard;
-$("testMergeSpeed").oninput=refreshDashboard;
+$("testMode").onchange=async()=>{
+  if($("testMode").checked){
+    toast("室内テストON");
+    await publishIndoorTest();
+  }else{
+    toast("実GPSモード");
+    $("gpsSource").textContent="Device Geolocation / High Accuracy";
+    telemetry.main=null;
+    telemetry.merge=null;
+    refreshDashboard();
+    await sendBroadcast("requestState",{from:clientId});
+  }
+};
+for(const id of ["testMainSpeed","testMainRemaining","testMergeSpeed","testMergeRemaining"]){
+  $(id).oninput=async()=>{if($("testMode").checked) await publishIndoorTest();};
+}
 setInterval(()=>{$("cloudAge").textContent=lastCloudRx?`${((Date.now()-lastCloudRx)/1000).toFixed(1)} s`:"-- s";$("age").textContent=lastGpsTimestamp?`${Math.max(0,(Date.now()-lastGpsTimestamp)/1000).toFixed(2)} s`:"-- s";refreshDashboard();if(logRecording)updateLogUi()},500);

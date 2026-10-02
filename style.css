@@ -49,3 +49,24 @@ body.route-panning #map {
 .logStatusRow{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;margin-bottom:8px}
 #logState.recording{color:#ff7b72;font-weight:800}
 @media(max-width:760px){.logStatusRow{grid-template-columns:1fr 1fr 1fr}}
+
+/* v0.4.7 indoor test */
+.testGrid{grid-template-columns:1fr 1fr 1fr 1fr 1fr}
+@media(max-width:760px){
+  .testGrid{grid-template-columns:1fr 1fr}
+  .checkLabel{grid-column:1/-1}
+}
+.testTag{
+  display:inline-block;
+  margin-left:4px;
+  padding:1px 5px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:800;
+  background:#5d4a18;
+  color:#f2cc60;
+}
+
+/* v0.4.8: separate local route generation and optional cloud save */
+.logPanel .buttons{row-gap:10px}
+#logRouteBtn{outline:2px solid rgba(86,211,100,.25)}

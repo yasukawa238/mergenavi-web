@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.4.6</title>
+<title>MergeNavi Cloud v0.4.8</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-<header><div><div class="titleRow"><h1>MergeNavi Cloud</h1><span class="versionBadge">Ver 0.4.6</span></div><div class="sub">Supabase Realtime / Smartphone GPS PoC</div></div><div id="cloudBadge" class="badge off">未接続</div></header>
+<header><div><div class="titleRow"><h1>MergeNavi Cloud</h1><span class="versionBadge">Ver 0.4.8</span></div><div class="sub">Supabase Realtime / Smartphone GPS PoC</div></div><div id="cloudBadge" class="badge off">未接続</div></header>
 <section class="panel">
 <div class="grid">
 <label>Session ID<div class="sessionRow"><input id="sessionId" maxlength="20"><button id="newSessionBtn">生成</button></div></label>
@@ -24,17 +24,24 @@
   <div class="testGrid">
     <label class="checkLabel">
       <input id="testMode" type="checkbox">
-      テスト速度を使用
+      室内テストを使用
     </label>
     <label>本線車 Test Speed [km/h]
       <input id="testMainSpeed" type="number" min="0" step="1" value="50">
     </label>
+    <label>本線車 Test 残距離 [m]
+      <input id="testMainRemaining" type="number" min="0" step="1" value="617">
+    </label>
     <label>合流車 Test Speed [km/h]
       <input id="testMergeSpeed" type="number" min="0" step="1" value="30">
     </label>
+    <label>合流車 Test 残距離 [m]
+      <input id="testMergeRemaining" type="number" min="0" step="1" value="370">
+    </label>
   </div>
   <div class="help">
-    テストモードON時はGPS位置はそのまま使い、ETA計算に使う速度だけを指定値へ置き換えます。
+    ON時はGPS位置・経路投影に関係なく、上記の速度と残距離から両車ETAを即時計算します。
+    初期値では本線車/合流車とも約44.4秒なのでKEEPが正常です。速度や残距離を変えるとFAST/SLOW確認ができます。
   </div>
 </section>
 
@@ -65,13 +72,13 @@
   <div class="buttons wrap">
     <button id="logStartBtn" class="primary">ログSTART</button>
     <button id="logStopBtn">ログSTOP</button>
-    <button id="logSaveBtn">Supabase保存</button>
+    <button id="logSaveBtn">クラウド保存（初回SQL必要）</button>
     <button id="logCsvBtn">CSV出力</button>
-    <button id="logRouteBtn">ログから自車経路生成</button>
+    <button id="logRouteBtn" class="primary">ログ→自車経路（SQL不要）</button>
     <button id="logClearBtn" class="danger">ログクリア</button>
   </div>
   <div class="help">
-    経路生成時は、Accuracyが悪い点・GPS飛びを除外し、約2m以上離れた点だけを採用して経路化します。
+    「ログ→自車経路」は端末内ログだけで生成するためSQL不要です。クラウド保存のみ、初回にSupabase SQL設定が必要です。
   </div>
 </section>
 
