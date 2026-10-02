@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.4.8";
+const APP_VERSION="0.5.0";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map").setView([35.2281,138.8994],16);
@@ -61,9 +61,82 @@ function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show")
 function randomSession(){const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let s="MN";for(let i=0;i<5;i++)s+=c[Math.floor(Math.random()*c.length)];return s}
 function sanitizeSession(s){return s.toUpperCase().replace(/[^A-Z0-9_-]/g,"").slice(0,20)}
 function role(){return $("role").value}
+function updateRoleTheme(){
+  const r=role();
+  document.body.classList.toggle("role-main",r==="main");
+  document.body.classList.toggle("role-merge",r==="merge");
+  const badge=$("roleBadge");
+  if(badge){
+    badge.textContent=r==="main"?"本線車":"合流車";
+    badge.className=`roleBadge ${r}`;
+  }
+  document.title=`${r==="main"?"本線車":"合流車"} | MergeNavi ${APP_VERSION}`;
+}
+function isMaster(){ return role()==="main"; }
+
+function updateMasterUi(){
+  const master=isMaster();
+  const badge=$("masterBadge");
+  if(badge){
+    badge.textContent=master?"MASTER":"FOLLOWER";
+    badge.className=`masterBadge ${master?"master":"follower"}`;
+  }
+
+  for(const el of document.querySelectorAll(".commonSetting")){
+    el.disabled=!master;
+  }
+  for(const el of document.querySelectorAll(".commonSettingAction")){
+    el.disabled=!master;
+  }
+
+  const note=$("commonSyncNote");
+  if(note){
+    note.innerHTML=master
+      ? 'この端末が <b>MASTER</b> です。共通設定を合流車へ配信します。'
+      : '共通設定は <b>本線車 MASTER</b> から自動反映されます。';
+  }
+}
+
+function collectCommonSettings(){
+  return {
+    controlRole:$("controlRole").value,
+    tolerance:parseFloat($("tolerance").value),
+    testMode:$("testMode").checked,
+    testMainSpeed:parseFloat($("testMainSpeed").value),
+    testMainRemaining:parseFloat($("testMainRemaining").value),
+    testMergeSpeed:parseFloat($("testMergeSpeed").value),
+    testMergeRemaining:parseFloat($("testMergeRemaining").value),
+    mergePoint
+  };
+}
+
+function applyCommonSettings(s){
+  if(!s)return;
+  if(s.controlRole!=null)$("controlRole").value=s.controlRole;
+  if(Number.isFinite(s.tolerance))$("tolerance").value=s.tolerance;
+  if(typeof s.testMode==="boolean")$("testMode").checked=s.testMode;
+  if(Number.isFinite(s.testMainSpeed))$("testMainSpeed").value=s.testMainSpeed;
+  if(Number.isFinite(s.testMainRemaining))$("testMainRemaining").value=s.testMainRemaining;
+  if(Number.isFinite(s.testMergeSpeed))$("testMergeSpeed").value=s.testMergeSpeed;
+  if(Number.isFinite(s.testMergeRemaining))$("testMergeRemaining").value=s.testMergeRemaining;
+  if(s.mergePoint)setMergePoint(s.mergePoint,false);
+  refreshDashboard();
+}
+
+async function publishCommonSettings(){
+  if(!isMaster())return;
+  await sendBroadcast("commonSettings",{
+    settings:collectCommonSettings(),
+    sentAt:Date.now(),
+    from:clientId
+  });
+}
+
 function sessionId(){return sanitizeSession($("sessionId").value.trim())}
 $("sessionId").value=randomSession();
 const params=new URLSearchParams(location.search);if(params.get("session"))$("sessionId").value=sanitizeSession(params.get("session"));
+updateRoleTheme();
+updateMasterUi();
 $("newSessionBtn").onclick=()=>{$("sessionId").value=randomSession()};
 
 async function leaveChannel(){if(channel){try{await channel.untrack()}catch{};try{await supabase.removeChannel(channel)}catch{};channel=null}joined=false}
@@ -75,23 +148,67 @@ $("joinBtn").onclick=async()=>{
  channel
  .on("broadcast",{event:"state"},({payload})=>{lastCloudRx=Date.now();applyRemoteState(payload)})
  .on("broadcast",{event:"telemetry"},({payload})=>{lastCloudRx=Date.now();if(payload?.role && Object.prototype.hasOwnProperty.call(payload,"data")){telemetry[payload.role]=payload.data;refreshDashboard()}})
- .on("broadcast",{event:"mergePoint"},({payload})=>{lastCloudRx=Date.now();if(payload?.point)setMergePoint(payload.point,false)})
+ .on("broadcast",{event:"mergePoint"},({payload})=>{lastCloudRx=Date.now();if(!isMaster()&&payload?.point)setMergePoint(payload.point,false)})
  .on("broadcast",{event:"route"},({payload})=>{lastCloudRx=Date.now();if(payload?.role&&Array.isArray(payload?.points))setRoute(payload.role,payload.points,false)})
- .on("broadcast",{event:"requestState"},async()=>{lastCloudRx=Date.now();if(joined)await sendState()})
+ .on("broadcast",{event:"commonSettings"},({payload})=>{
+   lastCloudRx=Date.now();
+   if(!isMaster() && payload?.settings)applyCommonSettings(payload.settings);
+ })
+ .on("broadcast",{event:"requestState"},async()=>{lastCloudRx=Date.now();if(joined&&isMaster())await sendState()})
  .on("presence",{event:"sync"},updatePresenceText)
  .on("presence",{event:"join"},updatePresenceText)
  .on("presence",{event:"leave"},updatePresenceText)
  .subscribe(async status=>{
-   if(status==="SUBSCRIBED"){joined=true;$("cloudBadge").textContent="Realtime接続";$("cloudBadge").className="badge on";await channel.track({clientId,role:role(),joinedAt:Date.now()});await sendBroadcast("requestState",{from:clientId});if($("testMode").checked)await publishIndoorTest();toast(`Session ${sid} に接続`)}
+   if(status==="SUBSCRIBED"){joined=true;$("cloudBadge").textContent="Realtime接続";$("cloudBadge").className="badge on";await channel.track({clientId,role:role(),joinedAt:Date.now()});
+   if(isMaster()){
+     await publishCommonSettings();
+     await sendState();
+   }else{
+     await sendBroadcast("requestState",{from:clientId});
+   }
+   if($("testMode").checked && isMaster())await publishIndoorTest();
+   toast(`Session ${sid} に接続`)}
    else if(["CHANNEL_ERROR","TIMED_OUT","CLOSED"].includes(status)){joined=false;$("cloudBadge").textContent=status;$("cloudBadge").className="badge off"}
  });
 };
-$("role").onchange=async()=>{if(joined&&channel)await channel.track({clientId,role:role(),joinedAt:Date.now()});if($("testMode").checked)await publishIndoorTest()};
+$("role").onchange=async()=>{
+  updateRoleTheme();
+  updateMasterUi();
+  if(joined&&channel){
+    await channel.track({clientId,role:role(),joinedAt:Date.now()});
+    if(isMaster()){
+      await publishCommonSettings();
+      await sendState();
+    }else{
+      await sendBroadcast("requestState",{from:clientId});
+    }
+  }
+  if($("testMode").checked && isMaster())await publishIndoorTest();
+};
 $("copyLinkBtn").onclick=async()=>{const u=new URL(location.href);u.searchParams.set("session",sessionId());try{await navigator.clipboard.writeText(u.toString());toast("共有リンクをコピーしました")}catch{prompt("このURLを共有してください",u.toString())}};
 
 async function sendBroadcast(event,payload){if(joined&&channel)await channel.send({type:"broadcast",event,payload})}
-async function sendState(){await sendBroadcast("state",{mergePoint,routes,telemetry,sentAt:Date.now(),from:clientId})}
-function applyRemoteState(s){if(!s)return;if(s.mergePoint)setMergePoint(s.mergePoint,false);if(Array.isArray(s.routes?.main))setRoute("main",s.routes.main,false);if(Array.isArray(s.routes?.merge))setRoute("merge",s.routes.merge,false);if(s.telemetry?.main)telemetry.main=s.telemetry.main;if(s.telemetry?.merge)telemetry.merge=s.telemetry.merge;refreshDashboard()}
+async function sendState(){
+  if(!isMaster())return;
+  await sendBroadcast("state",{
+    mergePoint,
+    routes,
+    telemetry,
+    commonSettings:collectCommonSettings(),
+    sentAt:Date.now(),
+    from:clientId
+  });
+}
+function applyRemoteState(s){
+  if(!s)return;
+  if(!isMaster() && s.commonSettings)applyCommonSettings(s.commonSettings);
+  else if(s.mergePoint)setMergePoint(s.mergePoint,false);
+  if(Array.isArray(s.routes?.main))setRoute("main",s.routes.main,false);
+  if(Array.isArray(s.routes?.merge))setRoute("merge",s.routes.merge,false);
+  if(s.telemetry?.main)telemetry.main=s.telemetry.main;
+  if(s.telemetry?.merge)telemetry.merge=s.telemetry.merge;
+  refreshDashboard();
+}
 function updatePresenceText(){if(!channel){$("presence").textContent="--";return}const st=channel.presenceState(),rows=[];for(const a of Object.values(st))for(const p of a)rows.push(`${p.role==="main"?"本線車":"合流車"}:${String(p.clientId).slice(0,5)}`);$("presence").textContent=rows.length?rows.join(" / "):"--"}
 
 $("mergePointBtn").onclick=()=>setMode("mergePoint");
@@ -130,9 +247,11 @@ function setMode(m){
 }
 map.on("click",async e=>{
   if(mode==="mergePoint"){
+    if(!isMaster()){toast("合流点は本線車MASTERで設定します");setMode(null);return;}
     const p={lat:e.latlng.lat,lng:e.latlng.lng};
     setMergePoint(p,false);
     await sendBroadcast("mergePoint",{point:p,sentAt:Date.now()});
+    await publishCommonSettings();
     setMode(null);
   }else if(mode==="drawRoute" && !panMode){
     if(Date.now()-lastTouchAddedAt<700) return;
@@ -378,9 +497,11 @@ function renderVehicle(r,data){
   d.innerHTML=`${kmh!=null?kmh.toFixed(1)+" km/h":"-- km/h"} / ${Number.isFinite(data.remaining)?data.remaining.toFixed(0)+" m":"-- m"}${data.testMode?'<span class="testTag">TEST</span>':(age!=null?" / "+age.toFixed(1)+"s old":"")}`;
 }
 function refreshDashboard(){const m=telemetry.main,g=telemetry.merge;renderVehicle("main",m);renderVehicle("merge",g);const inst=$("instruction"),d=$("delta"),tol=Math.max(.1,parseFloat($("tolerance").value)||.5),control=$("controlRole").value;if(!m||!g||!Number.isFinite(m.eta)||!Number.isFinite(g.eta)){inst.textContent="WAIT";inst.className="instructionText neutral";d.textContent="ΔT --.- s";return}const delta=m.eta-g.eta;d.textContent=`ΔT 本線-合流 = ${delta>=0?"+":""}${delta.toFixed(2)} s`;if(Math.abs(delta)<=tol){inst.textContent="KEEP";inst.className="instructionText ok";return}if(control==="main"){if(delta<0){inst.textContent="本線車 SLOW";inst.className="instructionText slow"}else{inst.textContent="本線車 FAST";inst.className="instructionText fast"}}else{if(delta<0){inst.textContent="合流車 FAST";inst.className="instructionText fast"}else{inst.textContent="合流車 SLOW";inst.className="instructionText slow"}}}
-$("tolerance").oninput=refreshDashboard;
-$("controlRole").onchange=refreshDashboard;
+$("tolerance").oninput=async()=>{refreshDashboard();if(isMaster())await publishCommonSettings();};
+$("controlRole").onchange=async()=>{refreshDashboard();if(isMaster())await publishCommonSettings();};
 $("testMode").onchange=async()=>{
+  if(!isMaster())return;
+  await publishCommonSettings();
   if($("testMode").checked){
     toast("室内テストON");
     await publishIndoorTest();
@@ -390,10 +511,14 @@ $("testMode").onchange=async()=>{
     telemetry.main=null;
     telemetry.merge=null;
     refreshDashboard();
-    await sendBroadcast("requestState",{from:clientId});
+    await sendState();
   }
 };
 for(const id of ["testMainSpeed","testMainRemaining","testMergeSpeed","testMergeRemaining"]){
-  $(id).oninput=async()=>{if($("testMode").checked) await publishIndoorTest();};
+  $(id).oninput=async()=>{
+    if(!isMaster())return;
+    await publishCommonSettings();
+    if($("testMode").checked)await publishIndoorTest();
+  };
 }
 setInterval(()=>{$("cloudAge").textContent=lastCloudRx?`${((Date.now()-lastCloudRx)/1000).toFixed(1)} s`:"-- s";$("age").textContent=lastGpsTimestamp?`${Math.max(0,(Date.now()-lastGpsTimestamp)/1000).toFixed(2)} s`:"-- s";refreshDashboard();if(logRecording)updateLogUi()},500);

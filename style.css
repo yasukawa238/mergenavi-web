@@ -70,3 +70,104 @@ body.route-panning #map {
 /* v0.4.8: separate local route generation and optional cloud save */
 .logPanel .buttons{row-gap:10px}
 #logRouteBtn{outline:2px solid rgba(86,211,100,.25)}
+
+/* v0.4.9 role-aware UI */
+:root{
+  --role-accent:#f59e0b;
+  --role-accent-soft:rgba(245,158,11,.12);
+  --role-border:rgba(245,158,11,.35);
+}
+body.role-main{
+  --role-accent:#3b82f6;
+  --role-accent-soft:rgba(59,130,246,.12);
+  --role-border:rgba(59,130,246,.35);
+  background:linear-gradient(180deg,rgba(59,130,246,.10),transparent 24rem),#0d1117;
+}
+body.role-merge{
+  --role-accent:#f59e0b;
+  --role-accent-soft:rgba(245,158,11,.12);
+  --role-border:rgba(245,158,11,.35);
+  background:linear-gradient(180deg,rgba(245,158,11,.10),transparent 24rem),#0d1117;
+}
+header{
+  border-bottom-color:var(--role-border);
+  box-shadow:inset 0 -2px 0 var(--role-accent-soft);
+}
+.roleBadge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+  color:#fff;
+  background:var(--role-accent);
+  box-shadow:0 0 0 3px var(--role-accent-soft);
+  white-space:nowrap;
+}
+#role{
+  border-color:var(--role-border);
+  box-shadow:0 0 0 1px var(--role-accent-soft);
+  font-weight:800;
+}
+.mapToolsPanel{
+  border-top:1px solid var(--role-border);
+  border-bottom:1px solid var(--role-border);
+  background:linear-gradient(180deg,var(--role-accent-soft),transparent 70%),#161b22;
+}
+.mapToolsPanel .panelTitle{color:var(--role-accent)}
+#map{
+  border-top:2px solid var(--role-border);
+  border-bottom:2px solid var(--role-border);
+}
+.logPanel{
+  border-top:2px solid #30363d;
+  background:#11161d;
+  margin-top:0;
+}
+@media(max-width:760px){
+  .titleRow{flex-wrap:wrap}
+  .roleBadge{font-size:11px;padding:3px 8px}
+}
+
+/* v0.5.0 MASTER/FOLLOWER */
+.masterBadge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:4px 9px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:.06em;
+  white-space:nowrap;
+}
+.masterBadge.master{
+  background:#1f6feb;
+  color:#fff;
+  box-shadow:0 0 0 3px rgba(31,111,235,.15);
+}
+.masterBadge.follower{
+  background:#30363d;
+  color:#c9d1d9;
+}
+.commonSyncNote{
+  margin-top:8px;
+  padding:8px 10px;
+  border:1px solid var(--role-border);
+  border-radius:8px;
+  background:var(--role-accent-soft);
+  font-size:12px;
+  color:#c9d1d9;
+}
+body.role-merge .commonSetting:disabled{
+  opacity:.72;
+  cursor:not-allowed;
+  border-color:#30363d;
+  background:#10151b;
+}
+body.role-merge .commonSettingAction:disabled{
+  opacity:.55;
+  cursor:not-allowed;
+}
