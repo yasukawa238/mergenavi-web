@@ -382,3 +382,76 @@ body.role-merge{
   }
   .controlTargetText{font-size:20px}
 }
+
+/* v0.5.5 SETUP terminal */
+body.role-setup{
+  --role-accent:#8b5cf6;
+  --role-accent-soft:rgba(139,92,246,.13);
+  --role-border:rgba(139,92,246,.42);
+  background:linear-gradient(180deg,rgba(139,92,246,.11),transparent 24rem),#0d1117;
+  box-shadow:inset 0 0 0 4px rgba(139,92,246,.34);
+}
+.masterBadge.setup{
+  background:#6d28d9;
+  color:#fff;
+  box-shadow:0 0 0 3px rgba(139,92,246,.20);
+}
+.masterBanner.setup{
+  background:linear-gradient(90deg,#5420a8,#7c3aed);
+  border-bottom-color:#bca5ff;
+  color:#fff;
+  box-shadow:0 5px 18px rgba(124,58,237,.27);
+}
+.presenceChip.setup{
+  background:rgba(139,92,246,.18);
+  border-color:rgba(139,92,246,.48);
+  color:#c7b5ff;
+}
+.setupRouteTargetRow{
+  display:none;
+  grid-template-columns:minmax(220px,360px) 1fr;
+  gap:12px;
+  align-items:end;
+  margin:9px 0 12px;
+  padding:10px;
+  border:1px solid rgba(139,92,246,.42);
+  border-radius:10px;
+  background:rgba(139,92,246,.09);
+}
+body.role-setup .setupRouteTargetRow{display:grid}
+.setupRouteTargetRow label{margin:0}
+.setupHint{
+  font-size:12px;
+  color:#c9d1d9;
+  line-height:1.45;
+  padding-bottom:3px;
+}
+.setupAuthorityNote{
+  margin-top:8px;
+  padding:7px 9px;
+  border-left:3px solid var(--role-accent);
+  background:rgba(255,255,255,.025);
+  font-size:11px;
+  color:#9da7b3;
+}
+body.role-setup .logPanel{
+  opacity:.72;
+}
+body.role-setup .logPanel::before{
+  content:"SETUP端末では走行ログ記録を使用しません。保存ログからの経路設定は地図エリアへ移動しています。";
+  display:block;
+  margin-bottom:10px;
+  padding:8px 10px;
+  border-radius:8px;
+  background:rgba(139,92,246,.10);
+  border:1px solid rgba(139,92,246,.28);
+  color:#c7b5ff;
+  font-size:12px;
+}
+.setupLocked{
+  opacity:.55!important;
+  cursor:not-allowed!important;
+}
+@media(max-width:760px){
+  .setupRouteTargetRow{grid-template-columns:1fr}
+}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.5.4</title>
+<title>MergeNavi Cloud v0.5.5</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -12,7 +12,7 @@
   <div>
     <div class="titleRow">
       <h1>MergeNavi Cloud</h1>
-      <span class="versionBadge">Ver 0.5.4</span>
+      <span class="versionBadge">Ver 0.5.5</span>
       <span id="roleBadge" class="roleBadge merge">合流車</span><span id="masterBadge" class="masterBadge follower">FOLLOWER</span>
     </div>
     <div class="sub">Supabase Realtime / Smartphone GPS PoC</div>
@@ -26,7 +26,7 @@
 <section class="panel">
 <div class="grid">
 <label>Session ID<div class="sessionRow"><input id="sessionId" maxlength="20"><button id="copySessionBtn">IDコピー</button><button id="newSessionBtn">生成</button></div></label>
-<label>車両<select id="role"><option value="merge">合流車</option><option value="main">本線車</option></select></label>
+<label>端末役割<select id="role"><option value="merge">合流車</option><option value="main">本線車</option><option value="setup">SETUP（設定専用PC）</option></select></label>
 <label>速度調整する車両<select id="controlRole" class="commonSetting"><option value="merge">合流車</option><option value="main">本線車</option></select></label>
 <label>判定許容差 [s]<input id="tolerance" class="commonSetting" type="number" min="0.1" step="0.1" value="0.5"></label>
 </div>
@@ -37,6 +37,9 @@
     <span id="presenceCount" class="presenceCount">0台</span>
   </div>
   <div id="presence" class="presenceDevices">未接続</div>
+</div>
+<div id="setupAuthorityNote" class="setupAuthorityNote">
+  本線車がMASTERです。SETUP端末接続中は、設定操作をPC側へ自動的に集約します。
 </div>
 </section>
 
@@ -80,16 +83,39 @@
 
 
 <section class="panel mapToolsPanel"><div class="panelTitle">地図・経路設定</div>
+<div id="setupRouteTargetRow" class="setupRouteTargetRow">
+  <label>PCで編集する経路
+    <select id="setupRouteTarget">
+      <option value="main">本線経路</option>
+      <option value="merge">合流経路</option>
+    </select>
+  </label>
+  <div class="setupHint">SETUP端末では、本線・合流の両経路をこのPCから直接設定できます。</div>
+</div>
 <div class="buttons wrap">
 <button id="mergePointBtn" class="commonSettingAction">① 合流点設定（MASTER）</button>
-<button id="drawRouteBtn">② 自車経路描画</button>
-<button id="panModeBtn">地図移動</button>
+<button id="drawRouteBtn" class="configEditAction">② 自車経路描画</button>
+<button id="panModeBtn" class="configEditAction">地図移動</button>
 <button id="centerBtn">◎ 現在地へ</button>
-<button id="finishRouteBtn">経路確定・共有</button>
-<button id="undoBtn">1点戻す</button>
-<button id="clearRouteBtn" class="danger">自車経路クリア</button>
+<button id="finishRouteBtn" class="configEditAction">経路確定・共有</button>
+<button id="undoBtn" class="configEditAction">1点戻す</button>
+<button id="clearRouteBtn" class="configEditAction danger">自車経路クリア</button>
 </div>
 <div class="help">合流点：ボタン→地図をタップ。<br>経路描画中はタップごとに「経路点 1」「経路点 2」…と表示されます。地図を動かしたい時は「地図移動」を押してください。</div>
+
+  <div class="cloudLogReuse">
+    <div class="panelSubTitle">保存済みログから経路を設定</div>
+    <div class="cloudLogRow">
+      <select id="cloudLogSelect">
+        <option value="">「保存ログ取得」を押してください</option>
+      </select>
+      <button id="cloudLogRefreshBtn">保存ログ取得</button>
+      <button id="cloudLogRouteBtn" class="primary configEditAction">選択ログ→経路設定</button>
+    </div>
+    <div id="cloudLogInfo" class="help">
+      車両モードでは自車、SETUPモードでは「PCで編集する経路」に対して保存ログを適用します。
+    </div>
+  </div>
 </section>
 <main id="map"></main>
 
@@ -127,19 +153,6 @@
     「ログ→自車経路」は端末内ログだけで生成するためSQL不要です。クラウド保存のみ、初回にSupabase SQL設定が必要です。
   </div>
 
-  <div class="cloudLogReuse">
-    <div class="panelSubTitle">保存済みログから経路を再利用</div>
-    <div class="cloudLogRow">
-      <select id="cloudLogSelect">
-        <option value="">「保存ログ取得」を押してください</option>
-      </select>
-      <button id="cloudLogRefreshBtn">保存ログ取得</button>
-      <button id="cloudLogRouteBtn" class="primary">選択ログ→自車経路</button>
-    </div>
-    <div id="cloudLogInfo" class="help">
-      現在選択中の車両と同じ種別の保存ログを、最新30件まで表示します。
-    </div>
-  </div>
 </section>
 <div id="toast" class="toast"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

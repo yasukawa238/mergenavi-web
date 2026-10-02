@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.5.4";
+const APP_VERSION="0.5.5";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map").setView([35.2281,138.8994],16);
@@ -58,55 +58,125 @@ let drawPoints=[],routes={main:[],merge:[]},routeLayers={main:null,merge:null},p
 let logRecording=false, driveLog=[], logStartedAt=null, lastLogAccepted=null;
 let cloudLogs=[];
 let wakeLockSentinel=null, wakeLockWanted=false;
+let setupOnline=false;
 
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove("show"),1800)}
 function randomSession(){const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let s="MN";for(let i=0;i<5;i++)s+=c[Math.floor(Math.random()*c.length)];return s}
 function sanitizeSession(s){return s.toUpperCase().replace(/[^A-Z0-9_-]/g,"").slice(0,20)}
 function role(){return $("role").value}
+function isMaster(){return role()==="main"}
+function isSetup(){return role()==="setup"}
+function canEditCommon(){return isSetup() || (isMaster() && !setupOnline)}
+function routeEditRole(){
+  if(isSetup())return $("setupRouteTarget")?.value==="merge"?"merge":"main";
+  return role();
+}
+function roleLabel(r){
+  if(r==="main")return "本線車";
+  if(r==="merge")return "合流車";
+  return "SETUP";
+}
 function updateRoleTheme(){
   const r=role();
   document.body.classList.toggle("role-main",r==="main");
   document.body.classList.toggle("role-merge",r==="merge");
+  document.body.classList.toggle("role-setup",r==="setup");
   const badge=$("roleBadge");
   if(badge){
-    badge.textContent=r==="main"?"本線車":"合流車";
+    badge.textContent=r==="main"?"本線車":r==="merge"?"合流車":"設定端末";
     badge.className=`roleBadge ${r}`;
   }
-  document.title=`${r==="main"?"本線車":"合流車"} | MergeNavi ${APP_VERSION}`;
+  document.title=`${roleLabel(r)} | MergeNavi ${APP_VERSION}`;
 }
-function isMaster(){ return role()==="main"; }
 
 function updateMasterUi(){
+  const r=role();
   const master=isMaster();
+  const setup=isSetup();
+  const commonEditable=canEditCommon();
+
   const badge=$("masterBadge");
   if(badge){
-    badge.textContent=master?"MASTER":"FOLLOWER";
-    badge.className=`masterBadge ${master?"master":"follower"}`;
+    badge.textContent=setup?"SETUP":master?"MASTER":"FOLLOWER";
+    badge.className=`masterBadge ${setup?"setup":master?"master":"follower"}`;
   }
+
   const banner=$("masterBanner");
   if(banner){
-    banner.className=`masterBanner ${master?"master":"follower"}`;
+    banner.className=`masterBanner ${setup?"setup":master?"master":"follower"}`;
     const main=banner.querySelector(".masterBannerMain");
     const sub=banner.querySelector(".masterBannerSub");
-    if(main)main.textContent=master?"MASTER":"FOLLOWER";
-    if(sub)sub.textContent=master?"本線車":"合流車";
+    if(main)main.textContent=setup?"SETUP":master?"MASTER":"FOLLOWER";
+    if(sub)sub.textContent=setup?"設定専用PC":master?"本線車":"合流車";
   }
 
   for(const el of document.querySelectorAll(".commonSetting")){
-    el.disabled=!master;
+    el.disabled=!commonEditable;
+    el.classList.toggle("setupLocked",!commonEditable);
   }
   for(const el of document.querySelectorAll(".commonSettingAction")){
-    el.disabled=!master;
+    el.disabled=!commonEditable;
+    el.classList.toggle("setupLocked",!commonEditable);
   }
 
-  const note=$("commonSyncNote");
+  // SETUP接続中は、スマホ側の地図設定をロックしてPCへ集約。
+  const vehicleConfigLocked=!setup && setupOnline;
+  for(const el of document.querySelectorAll(".configEditAction")){
+    el.disabled=vehicleConfigLocked;
+    el.classList.toggle("setupLocked",vehicleConfigLocked);
+  }
+
+  // SETUP端末ではGPS/走行ログは使用しない。
+  const gpsBtn=$("gpsBtn");
+  if(gpsBtn){
+    gpsBtn.disabled=setup;
+    gpsBtn.classList.toggle("setupLocked",setup);
+  }
+  const centerBtn=$("centerBtn");
+  if(centerBtn){
+    centerBtn.disabled=setup;
+    centerBtn.classList.toggle("setupLocked",setup);
+  }
+  for(const id of ["logStartBtn","logStopBtn","logSaveBtn","logCsvBtn","logClearBtn","autoLogNameBtn","logName"]){
+    const el=$(id);
+    if(el){
+      el.disabled=setup;
+      el.classList.toggle("setupLocked",setup);
+    }
+  }
+  const logRouteBtn=$("logRouteBtn");
+  if(logRouteBtn){
+    const lockRouteFromLog=setup || vehicleConfigLocked;
+    logRouteBtn.disabled=lockRouteFromLog;
+    logRouteBtn.classList.toggle("setupLocked",lockRouteFromLog);
+  }
+
+  updateRouteEditUi();
+
+  const note=$("setupAuthorityNote");
   if(note){
-    note.innerHTML=master
-      ? 'この端末が <b>MASTER</b> です。共通設定を合流車へ配信します。'
-      : '共通設定は <b>本線車 MASTER</b> から自動反映されます。';
+    if(setup){
+      note.innerHTML='<b>SETUP端末:</b> 共通設定・合流点・本線/合流の両経路をこのPCから設定できます。';
+    }else if(setupOnline){
+      note.innerHTML='<b>SETUP端末接続中:</b> 設定操作はPC側へ集約されています。スマホはGPS・表示・ログ取得に専念します。';
+    }else{
+      note.innerHTML='本線車がMASTERです。SETUP端末を接続すると、設定操作をPC側へ自動的に集約します。';
+    }
   }
 }
 
+function updateRouteEditUi(){
+  const target=routeEditRole();
+  const targetText=target==="main"?"本線":"合流";
+  const mergeBtn=$("mergePointBtn");
+  const draw=$("drawRouteBtn");
+  const clear=$("clearRouteBtn");
+  const cloud=$("cloudLogRouteBtn");
+  if(mergeBtn)mergeBtn.textContent=isSetup()?"① 合流点設定（SETUP）":"① 合流点設定（MASTER）";
+  if(draw)draw.textContent=isSetup()?`② ${targetText}経路描画`:"② 自車経路描画";
+  if(clear)clear.textContent=isSetup()?`${targetText}経路クリア`:"自車経路クリア";
+  if(cloud)cloud.textContent=isSetup()?`選択ログ→${targetText}経路`:"選択ログ→自車経路";
+}
 
 async function requestWakeLock(){
   if(!("wakeLock" in navigator)){
@@ -197,11 +267,12 @@ function applyCommonSettings(s){
 }
 
 async function publishCommonSettings(){
-  if(!isMaster())return;
+  if(!canEditCommon())return;
   await sendBroadcast("commonSettings",{
     settings:collectCommonSettings(),
     sentAt:Date.now(),
-    from:clientId
+    from:clientId,
+    fromRole:role()
   });
 }
 
@@ -241,11 +312,15 @@ $("joinBtn").onclick=async()=>{
  channel
  .on("broadcast",{event:"state"},({payload})=>{lastCloudRx=Date.now();applyRemoteState(payload)})
  .on("broadcast",{event:"telemetry"},({payload})=>{lastCloudRx=Date.now();if(payload?.role && Object.prototype.hasOwnProperty.call(payload,"data")){telemetry[payload.role]=payload.data;refreshDashboard()}})
- .on("broadcast",{event:"mergePoint"},({payload})=>{lastCloudRx=Date.now();if(!isMaster()&&payload?.point)setMergePoint(payload.point,false)})
+ .on("broadcast",{event:"mergePoint"},({payload})=>{lastCloudRx=Date.now();if(payload?.point && (payload?.fromRole==="setup" || !isMaster()))setMergePoint(payload.point,false)})
  .on("broadcast",{event:"route"},({payload})=>{lastCloudRx=Date.now();if(payload?.role&&Array.isArray(payload?.points))setRoute(payload.role,payload.points,false)})
  .on("broadcast",{event:"commonSettings"},({payload})=>{
    lastCloudRx=Date.now();
-   if(!isMaster() && payload?.settings)applyCommonSettings(payload.settings);
+   if(!payload?.settings)return;
+   const src=payload?.fromRole;
+   if(isSetup())return;                         // SETUPは車両側から上書きされない
+   if(isMaster() && src!=="setup")return;       // MASTERはSETUPからのみ受ける
+   applyCommonSettings(payload.settings);       // FOLLOWERはMASTER/SETUP双方を受ける
  })
  .on("broadcast",{event:"requestState"},async()=>{lastCloudRx=Date.now();if(joined&&isMaster())await sendState()})
  .on("presence",{event:"sync"},updatePresenceText)
@@ -255,30 +330,30 @@ $("joinBtn").onclick=async()=>{
    if(status==="SUBSCRIBED"){joined=true;$("cloudBadge").textContent="Realtime接続";$("cloudBadge").className="badge on";await channel.track({clientId,role:role(),joinedAt:Date.now()});
     updatePresenceText();
    if(isMaster()){
-     await publishCommonSettings();
+     if(!setupOnline)await publishCommonSettings();
      await sendState();
    }else{
-     await sendBroadcast("requestState",{from:clientId});
+     await sendBroadcast("requestState",{from:clientId,fromRole:role()});
    }
-   if($("testMode").checked && isMaster())await publishIndoorTest();
+   if($("testMode").checked && canEditCommon())await publishIndoorTest();
    toast(`Session ${sid} に接続`)}
    else if(["CHANNEL_ERROR","TIMED_OUT","CLOSED"].includes(status)){joined=false;$("cloudBadge").textContent=status;$("cloudBadge").className="badge off"}
  });
 };
 $("role").onchange=async()=>{
   updateRoleTheme();
-  updateMasterUi();
   clearCloudLogList();
   if(joined&&channel){
     await channel.track({clientId,role:role(),joinedAt:Date.now()});
     if(isMaster()){
-      await publishCommonSettings();
+      if(!setupOnline)await publishCommonSettings();
       await sendState();
     }else{
-      await sendBroadcast("requestState",{from:clientId});
+      await sendBroadcast("requestState",{from:clientId,fromRole:role()});
     }
   }
-  if($("testMode").checked && isMaster())await publishIndoorTest();
+  updateMasterUi();
+  if($("testMode").checked && canEditCommon())await publishIndoorTest();
 };
 $("copyLinkBtn").onclick=async()=>{const u=new URL(location.href);u.searchParams.set("session",sessionId());try{await navigator.clipboard.writeText(u.toString());toast("共有リンクをコピーしました")}catch{prompt("このURLを共有してください",u.toString())}};
 
@@ -296,7 +371,7 @@ async function sendState(){
 }
 function applyRemoteState(s){
   if(!s)return;
-  if(!isMaster() && s.commonSettings)applyCommonSettings(s.commonSettings);
+  if((!isMaster() || isSetup()) && s.commonSettings)applyCommonSettings(s.commonSettings);
   else if(s.mergePoint)setMergePoint(s.mergePoint,false);
   if(Array.isArray(s.routes?.main))setRoute("main",s.routes.main,false);
   if(Array.isArray(s.routes?.merge))setRoute("merge",s.routes.merge,false);
@@ -310,8 +385,10 @@ function updatePresenceText(){
   if(!box)return;
 
   if(!channel || !joined){
+    setupOnline=false;
     box.textContent="未接続";
     if(count)count.textContent="0台";
+    updateMasterUi();
     return;
   }
 
@@ -324,23 +401,29 @@ function updatePresenceText(){
     }
   }
 
+  setupOnline=rows.some(p=>p.role==="setup" && p.clientId!==clientId);
   if(count)count.textContent=`${rows.length}台`;
 
   if(!rows.length){
     box.textContent="接続端末を確認中...";
+    updateMasterUi();
     return;
   }
 
   box.innerHTML="";
+  const order={main:0,merge:1,setup:2};
   rows
-    .sort((a,b)=>(a.role==="main"?0:1)-(b.role==="main"?0:1))
+    .sort((a,b)=>(order[a.role]??9)-(order[b.role]??9))
     .forEach(p=>{
       const chip=document.createElement("span");
-      const r=p.role==="main"?"main":"merge";
+      const r=["main","merge","setup"].includes(p.role)?p.role:"setup";
       chip.className=`presenceChip ${r}${p.clientId===clientId?" self":""}`;
-      chip.textContent=`${r==="main"?"本線車":"合流車"} · ${String(p.clientId).slice(0,5)}`;
+      const text=r==="main"?"本線車":r==="merge"?"合流車":"SETUP";
+      chip.textContent=`${text} · ${String(p.clientId).slice(0,5)}`;
       box.appendChild(chip);
     });
+
+  updateMasterUi();
 }
 
 $("mergePointBtn").onclick=()=>setMode("mergePoint");
@@ -354,9 +437,9 @@ $("panModeBtn").onclick=()=>{
   }
   updateTouchLock();
 };
-$("finishRouteBtn").onclick=async()=>{if(drawPoints.length<2)return alert("経路は2点以上設定してください");const r=role();setRoute(r,drawPoints,false);await sendBroadcast("route",{role:r,points:drawPoints,sentAt:Date.now()});drawPoints=[];setMode(null);previewRoute()};
+$("finishRouteBtn").onclick=async()=>{if(drawPoints.length<2)return alert("経路は2点以上設定してください");const r=routeEditRole();setRoute(r,drawPoints,false);await sendBroadcast("route",{role:r,points:drawPoints,sentAt:Date.now(),fromRole:role()});drawPoints=[];setMode(null);previewRoute()};
 $("undoBtn").onclick=()=>{if(mode==="drawRoute"&&drawPoints.length){drawPoints.pop();previewRoute()}};
-$("clearRouteBtn").onclick=async()=>{const r=role();setRoute(r,[],false);await sendBroadcast("route",{role:r,points:[],sentAt:Date.now()})};
+$("clearRouteBtn").onclick=async()=>{const r=routeEditRole();setRoute(r,[],false);await sendBroadcast("route",{role:r,points:[],sentAt:Date.now(),fromRole:role()})};
 function updateTouchLock(){
   document.body.classList.toggle("route-drawing", mode==="drawRoute" && !panMode);
   document.body.classList.toggle("route-panning", mode==="drawRoute" && panMode);
@@ -379,10 +462,10 @@ function setMode(m){
 }
 map.on("click",async e=>{
   if(mode==="mergePoint"){
-    if(!isMaster()){toast("合流点は本線車MASTERで設定します");setMode(null);return;}
+    if(!canEditCommon()){toast(setupOnline?"合流点はSETUP端末で設定します":"合流点は本線車MASTERで設定します");setMode(null);return;}
     const p={lat:e.latlng.lat,lng:e.latlng.lng};
     setMergePoint(p,false);
-    await sendBroadcast("mergePoint",{point:p,sentAt:Date.now()});
+    await sendBroadcast("mergePoint",{point:p,sentAt:Date.now(),fromRole:role()});
     await publishCommonSettings();
     setMode(null);
   }else if(mode==="drawRoute" && !panMode){
@@ -517,7 +600,7 @@ function clearCloudLogList(){
 }
 
 async function loadCloudLogs(){
-  const r=role();
+  const r=routeEditRole();
   const select=$("cloudLogSelect");
   const info=$("cloudLogInfo");
   if(select)select.innerHTML='<option value="">取得中...</option>';
@@ -571,9 +654,9 @@ async function applySelectedCloudLogAsRoute(){
     return;
   }
 
-  const r=role();
+  const r=routeEditRole();
   setRoute(r,pts,false);
-  await sendBroadcast("route",{role:r,points:pts,sentAt:Date.now()});
+  await sendBroadcast("route",{role:r,points:pts,sentAt:Date.now(),fromRole:role()});
 
   if(routeLayers[r]){
     try{map.fitBounds(routeLayers[r].getBounds(),{padding:[20,20]});}catch{}
@@ -581,7 +664,7 @@ async function applySelectedCloudLogAsRoute(){
 
   const info=$("cloudLogInfo");
   if(info)info.textContent=`選択ログを自車経路へ設定: ${pts.length}点 / ${formatCloudLogLabel(row)}`;
-  toast(`保存ログ→自車経路: ${pts.length}点`);
+  toast(`保存ログ→${r==="main"?"本線":"合流"}経路: ${pts.length}点`);
 }
 
 $("autoLogNameBtn").onclick=()=>{
@@ -620,13 +703,22 @@ $("cloudLogSelect").onchange=()=>{
   const row=cloudLogs.find(x=>String(x.id)===String(id));
   if(row)$("cloudLogInfo").textContent=formatCloudLogLabel(row);
 };
+$("setupRouteTarget").onchange=()=>{
+  updateRouteEditUi();
+  clearCloudLogList();
+  const target=routeEditRole();
+  const layer=routeLayers[target];
+  if(layer){
+    try{map.fitBounds(layer.getBounds(),{padding:[20,20]});}catch{}
+  }
+};
 
 $("logRouteBtn").onclick=async()=>{
   const pts=buildRouteFromLog();
   if(pts.length<2){alert("有効な経路点が2点未満です");return}
   const r=role();
   setRoute(r,pts,false);
-  await sendBroadcast("route",{role:r,points:pts,sentAt:Date.now()});
+  await sendBroadcast("route",{role:r,points:pts,sentAt:Date.now(),fromRole:role()});
   toast(`端末内ログから経路生成: ${pts.length}点（SQL不要）`);
 };
 updateLogUi();
@@ -649,7 +741,7 @@ document.addEventListener("visibilitychange",async()=>{
   }
 });
 
-$("gpsBtn").onclick=()=>{if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;$("gpsBtn").textContent="GPS開始";$("gpsStatus").textContent="停止中";return}if(!navigator.geolocation)return alert("このブラウザは位置情報非対応");
+$("gpsBtn").onclick=()=>{if(isSetup())return toast("SETUP端末ではGPS送信しません");if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;$("gpsBtn").textContent="GPS開始";$("gpsStatus").textContent="停止中";return}if(!navigator.geolocation)return alert("このブラウザは位置情報非対応");
 $("gpsSource").textContent="Device Geolocation / High Accuracy";
 watchId=navigator.geolocation.watchPosition(
   onGeo,
@@ -748,9 +840,14 @@ async function publishIndoorTest(){
     await sendBroadcast("telemetry",{role:r,data});
   }
   $("gpsSource").textContent="Indoor Test / GPS bypass for ETA";
-  const own=getTestValues(role());
-  $("speed").textContent=Number.isFinite(own.speed)?`${(own.speed*3.6).toFixed(1)} km/h`:"-- km/h";
-  $("remaining").textContent=Number.isFinite(own.remaining)?`${own.remaining.toFixed(1)} m`:"-- m";
+  if(isSetup()){
+    $("speed").textContent="-- km/h";
+    $("remaining").textContent="-- m";
+  }else{
+    const own=getTestValues(role());
+    $("speed").textContent=Number.isFinite(own.speed)?`${(own.speed*3.6).toFixed(1)} km/h`:"-- km/h";
+    $("remaining").textContent=Number.isFinite(own.remaining)?`${own.remaining.toFixed(1)} m`:"-- m";
+  }
   refreshDashboard();
 }
 function renderVehicle(r,data){
@@ -762,14 +859,14 @@ function renderVehicle(r,data){
   d.innerHTML=`${kmh!=null?kmh.toFixed(1)+" km/h":"-- km/h"} / ${Number.isFinite(data.remaining)?data.remaining.toFixed(0)+" m":"-- m"}${data.testMode?'<span class="testTag">TEST</span>':(age!=null?" / "+age.toFixed(1)+"s old":"")}`;
 }
 function refreshDashboard(){const m=telemetry.main,g=telemetry.merge;renderVehicle("main",m);renderVehicle("merge",g);const inst=$("instruction"),d=$("delta"),tol=Math.max(.1,parseFloat($("tolerance").value)||.5),control=$("controlRole").value;if(!m||!g||!Number.isFinite(m.eta)||!Number.isFinite(g.eta)){inst.textContent="WAIT";inst.className="instructionText neutral";d.textContent="ΔT --.- s";return}const delta=m.eta-g.eta;d.textContent=`ΔT 本線-合流 = ${delta>=0?"+":""}${delta.toFixed(2)} s`;if(Math.abs(delta)<=tol){inst.textContent="KEEP";inst.className="instructionText ok";return}if(control==="main"){if(delta<0){inst.textContent="本線車 SLOW";inst.className="instructionText slow"}else{inst.textContent="本線車 FAST";inst.className="instructionText fast"}}else{if(delta<0){inst.textContent="合流車 FAST";inst.className="instructionText fast"}else{inst.textContent="合流車 SLOW";inst.className="instructionText slow"}}}
-$("tolerance").oninput=async()=>{refreshDashboard();if(isMaster())await publishCommonSettings();};
+$("tolerance").oninput=async()=>{refreshDashboard();if(canEditCommon())await publishCommonSettings();};
 $("controlRole").onchange=async()=>{
   updateControlTargetUi(true);
   refreshDashboard();
-  if(isMaster())await publishCommonSettings();
+  if(canEditCommon())await publishCommonSettings();
 };
 $("testMode").onchange=async()=>{
-  if(!isMaster())return;
+  if(!canEditCommon())return;
   await publishCommonSettings();
   if($("testMode").checked){
     toast("室内テストON");
@@ -785,7 +882,7 @@ $("testMode").onchange=async()=>{
 };
 for(const id of ["testMainSpeed","testMainRemaining","testMergeSpeed","testMergeRemaining"]){
   $(id).oninput=async()=>{
-    if(!isMaster())return;
+    if(!canEditCommon())return;
     await publishCommonSettings();
     if($("testMode").checked)await publishIndoorTest();
   };
