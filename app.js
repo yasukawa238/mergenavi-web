@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.5.0";
+const APP_VERSION="0.5.1";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map").setView([35.2281,138.8994],16);
@@ -56,6 +56,7 @@ const clientId=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).
 let channel=null,joined=false,mode=null,panMode=false,watchId=null,mergePoint=null,mergeMarker=null,currentPos=null,currentMarker=null;
 let drawPoints=[],routes={main:[],merge:[]},routeLayers={main:null,merge:null},previewLayer=null,telemetry={main:null,merge:null},speedEMA=null,lastGeo=null,lastCloudRx=0,lastGpsTimestamp=0;
 let logRecording=false, driveLog=[], logStartedAt=null, lastLogAccepted=null;
+let cloudLogs=[];
 
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove("show"),1800)}
 function randomSession(){const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let s="MN";for(let i=0;i<5;i++)s+=c[Math.floor(Math.random()*c.length)];return s}
@@ -174,6 +175,7 @@ $("joinBtn").onclick=async()=>{
 $("role").onchange=async()=>{
   updateRoleTheme();
   updateMasterUi();
+  clearCloudLogList();
   if(joined&&channel){
     await channel.track({clientId,role:role(),joinedAt:Date.now()});
     if(isMaster()){
@@ -308,11 +310,11 @@ function downloadCsv(){
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 
-function buildRouteFromLog(){
-  if(driveLog.length<2){alert("経路生成には2点以上のログが必要です");return []}
+function buildRouteFromLogData(logData){
+  if(!Array.isArray(logData) || logData.length<2)return [];
   const accepted=[];
   let prev=null;
-  for(const p of driveLog){
+  for(const p of logData){
     if(!Number.isFinite(p.lat)||!Number.isFinite(p.lng))continue;
     if(Number.isFinite(p.accuracy_m) && p.accuracy_m>30)continue;
     const cur={lat:p.lat,lng:p.lng};
@@ -326,6 +328,10 @@ function buildRouteFromLog(){
     prev=cur;
   }
   return accepted;
+}
+function buildRouteFromLog(){
+  if(driveLog.length<2){alert("経路生成には2点以上のログが必要です");return []}
+  return buildRouteFromLogData(driveLog);
 }
 
 async function saveLogToSupabase(){
@@ -345,7 +351,93 @@ async function saveLogToSupabase(){
     alert("クラウド保存の初期設定が未完了です。\n\nログ→自車経路生成にはSQL設定は不要です。\nクラウド保存を使う場合だけ、同梱の supabase_setup.sql をSupabaseのSQL Editorで一度実行してください。\n\n"+error.message);
     return;
   }
+
   toast("走行ログをSupabaseへ保存しました");
+}
+
+function formatCloudLogLabel(row){
+  const d=new Date(row.started_at || row.created_at);
+  const dateText=Number.isNaN(d.getTime()) ? "日時不明" : d.toLocaleString("ja-JP");
+  const roleText=row.role==="main"?"本線":"合流";
+  return `${dateText} / ${roleText} / ${row.point_count ?? "?"}点 / ${row.session_id ?? "-"}`;
+}
+
+function clearCloudLogList(){
+  cloudLogs=[];
+  const select=$("cloudLogSelect");
+  if(select){
+    select.innerHTML='<option value="">「保存ログ取得」を押してください</option>';
+  }
+  const info=$("cloudLogInfo");
+  if(info)info.textContent="現在選択中の車両と同じ種別の保存ログを、最新30件まで表示します。";
+}
+
+async function loadCloudLogs(){
+  const r=role();
+  const select=$("cloudLogSelect");
+  const info=$("cloudLogInfo");
+  if(select)select.innerHTML='<option value="">取得中...</option>';
+
+  const {data,error}=await supabase
+    .from("drive_logs")
+    .select("id,created_at,session_id,role,point_count,started_at,ended_at,app_version,log_data")
+    .eq("role",r)
+    .order("created_at",{ascending:false})
+    .limit(30);
+
+  if(error){
+    console.error(error);
+    if(select)select.innerHTML='<option value="">取得エラー</option>';
+    if(info)info.textContent=`保存ログ取得エラー: ${error.message}`;
+    alert("保存済みログを取得できませんでした。\nSELECT権限/RLS Policyを確認してください。\n\n"+error.message);
+    return;
+  }
+
+  cloudLogs=Array.isArray(data)?data:[];
+  if(!cloudLogs.length){
+    if(select)select.innerHTML='<option value="">保存ログなし</option>';
+    if(info)info.textContent=`${r==="main"?"本線車":"合流車"}の保存ログはまだありません。`;
+    return;
+  }
+
+  if(select){
+    select.innerHTML='<option value="">保存ログを選択...</option>';
+    for(const row of cloudLogs){
+      const opt=document.createElement("option");
+      opt.value=String(row.id);
+      opt.textContent=formatCloudLogLabel(row);
+      select.appendChild(opt);
+    }
+  }
+  if(info)info.textContent=`${r==="main"?"本線車":"合流車"}の保存ログ ${cloudLogs.length}件を取得しました。`;
+  toast(`保存ログ ${cloudLogs.length}件`);
+}
+
+async function applySelectedCloudLogAsRoute(){
+  const select=$("cloudLogSelect");
+  const id=select?.value;
+  if(!id){alert("保存ログを選択してください");return}
+
+  const row=cloudLogs.find(x=>String(x.id)===String(id));
+  if(!row){alert("選択ログが見つかりません。再取得してください");return}
+
+  const pts=buildRouteFromLogData(row.log_data);
+  if(pts.length<2){
+    alert("このログから有効な経路を生成できませんでした");
+    return;
+  }
+
+  const r=role();
+  setRoute(r,pts,false);
+  await sendBroadcast("route",{role:r,points:pts,sentAt:Date.now()});
+
+  if(routeLayers[r]){
+    try{map.fitBounds(routeLayers[r].getBounds(),{padding:[20,20]});}catch{}
+  }
+
+  const info=$("cloudLogInfo");
+  if(info)info.textContent=`選択ログを自車経路へ設定: ${pts.length}点 / ${formatCloudLogLabel(row)}`;
+  toast(`保存ログ→自車経路: ${pts.length}点`);
 }
 
 $("logStartBtn").onclick=()=>{
@@ -373,6 +465,13 @@ $("logClearBtn").onclick=()=>{
 
 $("logCsvBtn").onclick=downloadCsv;
 $("logSaveBtn").onclick=saveLogToSupabase;
+$("cloudLogRefreshBtn").onclick=loadCloudLogs;
+$("cloudLogRouteBtn").onclick=applySelectedCloudLogAsRoute;
+$("cloudLogSelect").onchange=()=>{
+  const id=$("cloudLogSelect").value;
+  const row=cloudLogs.find(x=>String(x.id)===String(id));
+  if(row)$("cloudLogInfo").textContent=formatCloudLogLabel(row);
+};
 
 $("logRouteBtn").onclick=async()=>{
   const pts=buildRouteFromLog();

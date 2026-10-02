@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.5.0</title>
+<title>MergeNavi Cloud v0.5.1</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -12,7 +12,7 @@
   <div>
     <div class="titleRow">
       <h1>MergeNavi Cloud</h1>
-      <span class="versionBadge">Ver 0.5.0</span>
+      <span class="versionBadge">Ver 0.5.1</span>
       <span id="roleBadge" class="roleBadge merge">合流車</span><span id="masterBadge" class="masterBadge follower">FOLLOWER</span>
     </div>
     <div class="sub">Supabase Realtime / Smartphone GPS PoC</div>
@@ -26,7 +26,7 @@
 <label>速度調整する車両<select id="controlRole" class="commonSetting"><option value="merge">合流車</option><option value="main">本線車</option></select></label>
 <label>判定許容差 [s]<input id="tolerance" class="commonSetting" type="number" min="0.1" step="0.1" value="0.5"></label>
 </div>
-<div class="buttons"><button id="joinBtn" class="primary">Realtime接続</button><button id="copyLinkBtn">共有リンクコピー</button><button id="gpsBtn">GPS開始</button><button id="centerBtn">現在地へ</button></div>
+<div class="buttons"><button id="joinBtn" class="primary">Realtime接続</button><button id="copyLinkBtn">共有リンクコピー</button><button id="gpsBtn">GPS開始</button></div>
 </section>
 
 <section class="panel testPanel">
@@ -69,6 +69,7 @@
 <button id="mergePointBtn" class="commonSettingAction">① 合流点設定（MASTER）</button>
 <button id="drawRouteBtn">② 自車経路描画</button>
 <button id="panModeBtn">地図移動</button>
+<button id="centerBtn">◎ 現在地へ</button>
 <button id="finishRouteBtn">経路確定・共有</button>
 <button id="undoBtn">1点戻す</button>
 <button id="clearRouteBtn" class="danger">自車経路クリア</button>
@@ -103,6 +104,20 @@
   </div>
   <div class="help">
     「ログ→自車経路」は端末内ログだけで生成するためSQL不要です。クラウド保存のみ、初回にSupabase SQL設定が必要です。
+  </div>
+
+  <div class="cloudLogReuse">
+    <div class="panelSubTitle">保存済みログから経路を再利用</div>
+    <div class="cloudLogRow">
+      <select id="cloudLogSelect">
+        <option value="">「保存ログ取得」を押してください</option>
+      </select>
+      <button id="cloudLogRefreshBtn">保存ログ取得</button>
+      <button id="cloudLogRouteBtn" class="primary">選択ログ→自車経路</button>
+    </div>
+    <div id="cloudLogInfo" class="help">
+      現在選択中の車両と同じ種別の保存ログを、最新30件まで表示します。
+    </div>
   </div>
 </section>
 <div id="toast" class="toast"></div>

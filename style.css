@@ -171,3 +171,33 @@ body.role-merge .commonSettingAction:disabled{
   opacity:.55;
   cursor:not-allowed;
 }
+
+/* v0.5.1 saved-log route reuse */
+.cloudLogReuse{
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid #30363d;
+}
+.panelSubTitle{
+  font-size:13px;
+  font-weight:800;
+  margin-bottom:8px;
+  color:#c9d1d9;
+}
+.cloudLogRow{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  gap:8px;
+  align-items:end;
+}
+.cloudLogRow select{
+  margin-top:0;
+}
+@media(max-width:760px){
+  .cloudLogRow{
+    grid-template-columns:1fr 1fr;
+  }
+  .cloudLogRow select{
+    grid-column:1/-1;
+  }
+}
