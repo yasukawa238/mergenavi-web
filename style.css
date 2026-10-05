@@ -501,3 +501,72 @@ body.role-setup .logPanel::before{
     display:none !important;
   }
 }
+
+/* v0.5.9 map-centered layout */
+.mapToolsPanel{
+  margin-bottom:0;
+  border-bottom-left-radius:0;
+  border-bottom-right-radius:0;
+}
+.mapActionButtons{
+  margin-bottom:6px;
+}
+#map{
+  margin-top:0;
+  margin-bottom:0;
+  border-radius:0;
+}
+.mapBelowPanel{
+  margin-top:0;
+  border-top-left-radius:0;
+  border-top-right-radius:0;
+}
+.mapLayerRow{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  align-items:center;
+  gap:10px;
+  margin:0 0 10px;
+  padding:9px 10px;
+  border:1px solid var(--role-border);
+  border-radius:9px;
+  background:rgba(255,255,255,.025);
+}
+.mapLayerRow label{
+  margin:0;
+  font-size:12px;
+  font-weight:900;
+  color:#c9d1d9;
+}
+.mapLayerRow select{
+  margin:0;
+  min-width:0;
+  height:38px;
+  font-weight:800;
+}
+
+/* The old floating Leaflet layer selector is no longer used on either PC or smartphone. */
+.leaflet-control-layers{
+  display:none !important;
+}
+
+/* Override v0.5.8 mobile-only row behavior */
+.mobileMapLayerRow{
+  display:none !important;
+}
+
+body.role-setup .setupRouteTargetRow{
+  display:grid;
+  margin:0 0 12px;
+}
+
+@media(max-width:760px){
+  .mapLayerRow{
+    grid-template-columns:82px minmax(0,1fr);
+  }
+  .mapToolsPanel,
+  .mapBelowPanel{
+    margin-left:0;
+    margin-right:0;
+  }
+}

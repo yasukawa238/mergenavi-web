@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.5.8</title>
+<title>MergeNavi Cloud v0.5.9</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -12,7 +12,7 @@
   <div>
     <div class="titleRow">
       <h1>MergeNavi Cloud</h1>
-      <span class="versionBadge">Ver 0.5.8</span>
+      <span class="versionBadge">Ver 0.5.9</span>
       <span id="roleBadge" class="roleBadge merge">合流車</span><span id="masterBadge" class="masterBadge follower">FOLLOWER</span>
     </div>
     <div class="sub">Supabase Realtime / Smartphone GPS PoC</div>
@@ -82,35 +82,46 @@
 
 
 
-<section class="panel mapToolsPanel"><div class="panelTitle">地図・経路設定</div>
-<div class="mobileMapLayerRow">
-  <label for="mobileBaseLayerSelect">地図表示</label>
-  <select id="mobileBaseLayerSelect">
-    <option value="gsi" selected>航空写真（地理院・最新）</option>
-    <option value="esri">航空写真（Esri）</option>
-    <option value="street">地図</option>
-  </select>
-</div>
-<div id="setupRouteTargetRow" class="setupRouteTargetRow">
-  <label>PCで編集する経路
-    <select id="setupRouteTarget">
-      <option value="main">本線経路</option>
-      <option value="merge">合流経路</option>
+<section class="panel mapToolsPanel">
+  <div class="panelTitle">地図・経路設定</div>
+  <div class="buttons wrap mapActionButtons">
+    <button id="mergePointBtn" class="commonSettingAction">① 合流点設定（MASTER）</button>
+    <button id="drawRouteBtn" class="configEditAction">② 自車経路描画</button>
+    <button id="panModeBtn" class="configEditAction">地図移動</button>
+    <button id="centerBtn">◎ 現在地へ</button>
+    <button id="finishRouteBtn" class="configEditAction">経路確定・共有</button>
+    <button id="undoBtn" class="configEditAction">1点戻す</button>
+    <button id="clearRouteBtn" class="configEditAction danger">自車経路クリア</button>
+  </div>
+  <div class="help">
+    合流点：ボタン→地図をタップ。経路描画中はタップごとに経路点を追加します。
+    地図を動かしたい時は「地図移動」を押してください。
+  </div>
+</section>
+
+<main id="map"></main>
+
+<section class="panel mapBelowPanel">
+  <div class="mapLayerRow">
+    <label for="mobileBaseLayerSelect">地図切替</label>
+    <select id="mobileBaseLayerSelect">
+      <option value="gsi" selected>航空写真（地理院・最新）</option>
+      <option value="esri">航空写真（Esri）</option>
+      <option value="street">地図</option>
     </select>
-  </label>
-  <div class="setupHint">SETUP端末では、本線・合流の両経路をこのPCから直接設定できます。</div>
-</div>
-<div class="buttons wrap">
-<button id="mergePointBtn" class="commonSettingAction">① 合流点設定（MASTER）</button>
-<button id="drawRouteBtn" class="configEditAction">② 自車経路描画</button>
-<button id="panModeBtn" class="configEditAction">地図移動</button>
-<button id="centerBtn">◎ 現在地へ</button>
-<button id="finishRouteBtn" class="configEditAction">経路確定・共有</button>
-<button id="undoBtn" class="configEditAction">1点戻す</button>
-<button id="clearRouteBtn" class="configEditAction danger">自車経路クリア</button>
-</div>
-<div class="help">合流点：ボタン→地図をタップ。<br>経路描画中はタップごとに「経路点 1」「経路点 2」…と表示されます。地図を動かしたい時は「地図移動」を押してください。<br>
-航空写真は「Esri」と「地理院・最新写真」を切替できます。Z20以降は元画像を拡大表示します。</div>
+  </div>
+
+  <div id="setupRouteTargetRow" class="setupRouteTargetRow">
+    <label>ルート選択
+      <select id="setupRouteTarget">
+        <option value="main">本線経路</option>
+        <option value="merge">合流経路</option>
+      </select>
+    </label>
+    <div class="setupHint">
+      SETUP端末では、本線・合流のどちらを編集するか選択します。
+    </div>
+  </div>
 
   <div class="cloudLogReuse">
     <div class="panelSubTitle">保存済みログから経路を設定</div>
@@ -122,11 +133,14 @@
       <button id="cloudLogRouteBtn" class="primary configEditAction">選択ログ→経路設定</button>
     </div>
     <div id="cloudLogInfo" class="help">
-      車両モードでは自車、SETUPモードでは「PCで編集する経路」に対して保存ログを適用します。
+      車両モードでは自車、SETUPモードでは上の「ルート選択」で指定した経路へ適用します。
     </div>
   </div>
+
+  <div class="help">
+    地理院航空写真を初期表示します。高ズームでは元画像を拡大表示します。
+  </div>
 </section>
-<main id="map"></main>
 
 <section class="panel status">
 <div><b>自車GPS:</b> <span id="gpsStatus">停止中</span></div>
