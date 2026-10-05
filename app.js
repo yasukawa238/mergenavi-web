@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.5.6";
+const APP_VERSION="0.5.7";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map",{maxZoom:22}).setView([35.2281,138.8994],16);
@@ -25,13 +25,33 @@ const gsiAerialLayer=L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessp
   keepBuffer:4,
   attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>'
 });
-streetLayer.addTo(map);
+// 経路設定用途を優先し、地理院の最新航空写真を初期表示にする。
+gsiAerialLayer.addTo(map);
 
-L.control.layers({
+// スマホでは地図を隠さないよう、レイヤ選択UIは普段は折りたたむ。
+const layerControl=L.control.layers({
   "地図":streetLayer,
   "航空写真（Esri）":aerialLayer,
   "航空写真（地理院・最新）":gsiAerialLayer
-},null,{position:"topright",collapsed:false}).addTo(map);
+},null,{position:"topright",collapsed:true}).addTo(map);
+
+// 選択後は即時に閉じる。スマホ上で地図が隠れたままにならないようにする。
+map.on("baselayerchange",()=>{
+  setTimeout(()=>{
+    try{
+      if(typeof layerControl.collapse==="function")layerControl.collapse();
+      else if(typeof layerControl._collapse==="function")layerControl._collapse();
+    }catch{}
+  },0);
+});
+
+// 地図を触った場合も念のため閉じる。
+map.on("click",()=>{
+  try{
+    if(typeof layerControl.collapse==="function")layerControl.collapse();
+    else if(typeof layerControl._collapse==="function")layerControl._collapse();
+  }catch{}
+});
 
 // 現在のズームレベルを表示。
 // Native解像度を超えている場合は「拡大表示」と明示する。
