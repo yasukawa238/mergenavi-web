@@ -1,29 +1,76 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.5.5";
+const APP_VERSION="0.5.6";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
-const map=L.map("map").setView([35.2281,138.8994],16);
+const map=L.map("map",{maxZoom:22}).setView([35.2281,138.8994],16);
+
+// Native tile zoomを超えた領域はLeaflet側で拡大表示し、
+// 存在しない高ズームタイルへアクセスして真っ白になるのを防ぐ。
 const streetLayer=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-  maxZoom:20,attribution:"&copy; OpenStreetMap contributors"
+  maxNativeZoom:19,
+  maxZoom:22,
+  attribution:"&copy; OpenStreetMap contributors"
 });
 const aerialLayer=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{
-  maxZoom:20,attribution:"Tiles &copy; Esri"
+  maxNativeZoom:19,
+  maxZoom:22,
+  keepBuffer:4,
+  attribution:"Tiles &copy; Esri"
+});
+const gsiAerialLayer=L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{
+  minZoom:14,
+  maxNativeZoom:18,
+  maxZoom:22,
+  keepBuffer:4,
+  attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>'
 });
 streetLayer.addTo(map);
 
-L.control.layers({"地図":streetLayer,"航空写真":aerialLayer},null,{position:"topright",collapsed:false}).addTo(map);
+L.control.layers({
+  "地図":streetLayer,
+  "航空写真（Esri）":aerialLayer,
+  "航空写真（地理院・最新）":gsiAerialLayer
+},null,{position:"topright",collapsed:false}).addTo(map);
+
+// 現在のズームレベルを表示。
+// Native解像度を超えている場合は「拡大表示」と明示する。
+const zoomInfo=L.control({position:"bottomleft"});
+zoomInfo.onAdd=()=>{
+  const div=L.DomUtil.create("div","mapZoomInfo");
+  div.id="mapZoomInfo";
+  return div;
+};
+zoomInfo.addTo(map);
+
+function updateMapZoomInfo(){
+  const el=document.getElementById("mapZoomInfo");
+  if(!el)return;
+  const z=map.getZoom();
+  let nativeMax=19;
+  if(map.hasLayer(gsiAerialLayer))nativeMax=18;
+  el.textContent=z>nativeMax ? `Z${z}（拡大表示）` : `Z${z}`;
+}
+map.on("zoomend baselayerchange",updateMapZoomInfo);
+updateMapZoomInfo();
 
 // v0.4.7: smartphone route drawing touch handling.
 const mapEl=document.getElementById("map");
 let touchStartInfo=null;
+let mergeTouchStartInfo=null;
 let lastTouchAddedAt=0;
+let lastMergeTouchHandledAt=0;
 
 mapEl.addEventListener("touchstart",(ev)=>{
-  if(mode==="drawRoute" && !panMode && ev.touches.length===1){
-    const t=ev.touches[0];
+  if(ev.touches.length!==1)return;
+  const t=ev.touches[0];
+
+  if(mode==="drawRoute" && !panMode){
     touchStartInfo={x:t.clientX,y:t.clientY,time:Date.now()};
     ev.preventDefault();
+  }else if(mode==="mergePoint"){
+    // 合流点設定ではドラッグ操作を妨げないためpreventDefaultしない。
+    mergeTouchStartInfo={x:t.clientX,y:t.clientY,time:Date.now()};
   }
 },{passive:false});
 
@@ -32,10 +79,33 @@ mapEl.addEventListener("touchmove",(ev)=>{
 },{passive:false});
 
 mapEl.addEventListener("touchend",(ev)=>{
-  if(mode!=="drawRoute" || panMode || !touchStartInfo) return;
-  ev.preventDefault();
   const t=ev.changedTouches && ev.changedTouches[0];
-  if(!t){touchStartInfo=null;return;}
+  if(!t){
+    touchStartInfo=null;
+    mergeTouchStartInfo=null;
+    return;
+  }
+
+  if(mode==="mergePoint" && mergeTouchStartInfo){
+    const dx=t.clientX-mergeTouchStartInfo.x;
+    const dy=t.clientY-mergeTouchStartInfo.y;
+    const dist=Math.hypot(dx,dy);
+    const dt=Date.now()-mergeTouchStartInfo.time;
+    mergeTouchStartInfo=null;
+
+    // 短いタップだけを合流点として扱い、地図パンはそのまま許可。
+    if(dist<=16 && dt<=700){
+      const rect=mapEl.getBoundingClientRect();
+      const pt=L.point(t.clientX-rect.left,t.clientY-rect.top);
+      const latlng=map.containerPointToLatLng(pt);
+      lastMergeTouchHandledAt=Date.now();
+      commitMergePoint(latlng);
+    }
+    return;
+  }
+
+  if(mode!=="drawRoute" || panMode || !touchStartInfo)return;
+  ev.preventDefault();
   const dx=t.clientX-touchStartInfo.x;
   const dy=t.clientY-touchStartInfo.y;
   const dist=Math.hypot(dx,dy);
@@ -357,7 +427,18 @@ $("role").onchange=async()=>{
 };
 $("copyLinkBtn").onclick=async()=>{const u=new URL(location.href);u.searchParams.set("session",sessionId());try{await navigator.clipboard.writeText(u.toString());toast("共有リンクをコピーしました")}catch{prompt("このURLを共有してください",u.toString())}};
 
-async function sendBroadcast(event,payload){if(joined&&channel)await channel.send({type:"broadcast",event,payload})}
+async function sendBroadcast(event,payload){
+  if(!joined||!channel)return "not_joined";
+  try{
+    return await Promise.race([
+      channel.send({type:"broadcast",event,payload}),
+      new Promise(resolve=>setTimeout(()=>resolve("local_timeout"),1500))
+    ]);
+  }catch(err){
+    console.warn(`Broadcast ${event} failed`,err);
+    return "error";
+  }
+}
 async function sendState(){
   if(!isMaster())return;
   await sendBroadcast("state",{
@@ -426,6 +507,32 @@ function updatePresenceText(){
   updateMasterUi();
 }
 
+async function commitMergePoint(latlng){
+  if(!latlng)return;
+  if(!canEditCommon()){
+    toast(setupOnline?"合流点はSETUP端末で設定します":"合流点は本線車MASTERで設定します");
+    setMode(null);
+    return;
+  }
+
+  const p={lat:latlng.lat,lng:latlng.lng};
+
+  // 画面反映とモード終了を最優先。ネットワーク応答を待たない。
+  setMergePoint(p);
+  setMode(null);
+  toast("合流点を設定しました");
+
+  // Realtime同期はバックグラウンドで実施。
+  Promise.allSettled([
+    sendBroadcast("mergePoint",{point:p,sentAt:Date.now(),fromRole:role()}),
+    publishCommonSettings()
+  ]).then(results=>{
+    if(results.some(r=>r.status==="rejected")){
+      console.warn("Merge point sync partially failed",results);
+    }
+  });
+}
+
 $("mergePointBtn").onclick=()=>setMode("mergePoint");
 $("drawRouteBtn").onclick=()=>{drawPoints=[];panMode=false;setMode("drawRoute");previewRoute()};
 $("panModeBtn").onclick=()=>{
@@ -460,16 +567,13 @@ function setMode(m){
   }
   updateTouchLock();
 }
-map.on("click",async e=>{
+map.on("click",e=>{
   if(mode==="mergePoint"){
-    if(!canEditCommon()){toast(setupOnline?"合流点はSETUP端末で設定します":"合流点は本線車MASTERで設定します");setMode(null);return;}
-    const p={lat:e.latlng.lat,lng:e.latlng.lng};
-    setMergePoint(p,false);
-    await sendBroadcast("mergePoint",{point:p,sentAt:Date.now(),fromRole:role()});
-    await publishCommonSettings();
-    setMode(null);
+    // スマホtouchendで処理済みのsynthetic clickは二重登録しない。
+    if(Date.now()-lastMergeTouchHandledAt<900)return;
+    commitMergePoint(e.latlng);
   }else if(mode==="drawRoute" && !panMode){
-    if(Date.now()-lastTouchAddedAt<700) return;
+    if(Date.now()-lastTouchAddedAt<700)return;
     drawPoints.push({lat:e.latlng.lat,lng:e.latlng.lng});
     previewRoute();
     toast(`経路点 ${drawPoints.length}`);

@@ -455,3 +455,15 @@ body.role-setup .logPanel::before{
 @media(max-width:760px){
   .setupRouteTargetRow{grid-template-columns:1fr}
 }
+
+/* v0.5.6 map robustness */
+.mapZoomInfo{
+  background:rgba(13,17,23,.88);
+  color:#fff;
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:6px;
+  padding:3px 6px;
+  font-size:11px;
+  font-weight:800;
+  box-shadow:0 1px 4px rgba(0,0,0,.35);
+}
