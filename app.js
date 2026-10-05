@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.5.7";
+const APP_VERSION="0.5.8";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map",{maxZoom:22}).setView([35.2281,138.8994],16);
@@ -35,8 +35,39 @@ const layerControl=L.control.layers({
   "航空写真（地理院・最新）":gsiAerialLayer
 },null,{position:"topright",collapsed:true}).addTo(map);
 
+function setBaseLayerById(id){
+  for(const layer of [streetLayer,aerialLayer,gsiAerialLayer]){
+    if(map.hasLayer(layer))map.removeLayer(layer);
+  }
+  if(id==="street")streetLayer.addTo(map);
+  else if(id==="esri")aerialLayer.addTo(map);
+  else gsiAerialLayer.addTo(map);
+
+  const sel=document.getElementById("mobileBaseLayerSelect");
+  if(sel && sel.value!==id)sel.value=id;
+  updateMapZoomInfo();
+}
+
+function currentBaseLayerId(){
+  if(map.hasLayer(streetLayer))return "street";
+  if(map.hasLayer(aerialLayer))return "esri";
+  return "gsi";
+}
+
+const mobileBaseLayerSelect=document.getElementById("mobileBaseLayerSelect");
+if(mobileBaseLayerSelect){
+  mobileBaseLayerSelect.value=currentBaseLayerId();
+  mobileBaseLayerSelect.addEventListener("change",e=>{
+    setBaseLayerById(e.target.value);
+  });
+}
+
+
 // 選択後は即時に閉じる。スマホ上で地図が隠れたままにならないようにする。
 map.on("baselayerchange",()=>{
+  const sel=document.getElementById("mobileBaseLayerSelect");
+  if(sel)sel.value=currentBaseLayerId();
+
   setTimeout(()=>{
     try{
       if(typeof layerControl.collapse==="function")layerControl.collapse();
