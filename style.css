@@ -847,3 +847,111 @@ body.role-setup .setupRouteTargetRow{
 /* Route legend */
 .legendItem.main{color:#3b82f6}
 .legendItem.merge{color:#f59e0b}
+
+/* v0.6.3 driver instruction: icon + text */
+.driverHero .instructionText{
+  flex-direction:column;
+  gap:2px;
+  min-height:118px;
+}
+
+.instructionArrow{
+  display:block;
+  font-size:82px;
+  line-height:.8;
+  font-weight:1000;
+}
+
+.instructionLabel{
+  display:block;
+  font-size:28px;
+  line-height:1.05;
+  font-weight:1000;
+  letter-spacing:.06em;
+  white-space:nowrap;
+}
+
+.instructionDot{
+  display:block;
+  font-size:46px;
+  line-height:.75;
+  font-weight:1000;
+}
+
+@media(max-width:760px){
+  .driverHero .instructionText{
+    min-height:138px;
+  }
+  .instructionArrow{
+    font-size:96px;
+  }
+  .instructionLabel{
+    font-size:32px;
+  }
+  .instructionDot{
+    font-size:50px;
+  }
+}
+
+/* v0.6.4 advanced indoor test */
+.advancedTestPanel{
+  padding:0;
+  overflow:hidden;
+}
+.advancedTestPanel > summary{
+  list-style:none;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px;
+  font-weight:900;
+  user-select:none;
+}
+.advancedTestPanel > summary::-webkit-details-marker{display:none}
+.advancedTestPanel > summary::after{
+  content:"›";
+  font-size:24px;
+  line-height:1;
+  color:#8b949e;
+  transform:rotate(90deg);
+  transition:transform .15s ease;
+}
+.advancedTestPanel[open] > summary::after{
+  transform:rotate(270deg);
+}
+.summaryHint{
+  margin-left:auto;
+  font-size:11px;
+  font-weight:700;
+  color:#8b949e;
+}
+.advancedTestBody{
+  padding:0 14px 14px;
+  border-top:1px solid #30363d;
+}
+.indoorSimPanel{
+  margin-top:12px;
+  padding:10px;
+  border:1px solid var(--role-border);
+  border-radius:10px;
+  background:var(--role-accent-soft);
+}
+.indoorSimStatus{
+  margin-top:8px;
+  padding:7px 9px;
+  border-radius:8px;
+  background:#0d1117;
+  border:1px solid #30363d;
+  font-size:12px;
+  font-weight:800;
+  color:#c9d1d9;
+}
+.indoorSimStatus.running{color:#3bd16f}
+.indoorSimStatus.paused{color:#f2cc60}
+@media(max-width:760px){
+  .advancedTestPanel > summary{padding:11px 12px}
+  .summaryHint{display:none}
+  .advancedTestBody{padding:0 10px 12px}
+}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.6.2</title>
+<title>MergeNavi Cloud v0.6.4</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -12,7 +12,7 @@
   <div>
     <div class="titleRow">
       <h1>MergeNavi Cloud</h1>
-      <span class="versionBadge">Ver 0.6.2</span>
+      <span class="versionBadge">Ver 0.6.4</span>
       <span id="roleBadge" class="roleBadge merge">合流車</span><span id="masterBadge" class="masterBadge follower">FOLLOWER</span>
     </div>
     <div class="sub">Supabase Realtime / Smartphone GPS PoC</div>
@@ -34,7 +34,7 @@
   <option value="behind">相手車の後ろ</option>
 </select></label>
 <label>目標距離 [m]<input id="targetGapM" class="commonSetting" type="number" min="0" step="1" value="10"></label>
-<label>合流部基準速度 [km/h]<input id="mergeReferenceSpeed" class="commonSetting" type="number" min="1" step="1" value="50"></label>
+<label>合流時想定速度 [km/h]<input id="mergeReferenceSpeed" class="commonSetting" type="number" min="1" step="1" value="50"></label>
 <label>判定許容差 [s]<input id="tolerance" class="commonSetting" type="number" min="0.1" step="0.1" value="0.5"></label>
 </div>
 <div class="buttons"><button id="joinBtn" class="primary">Realtime接続</button><button id="copyLinkBtn">共有リンクコピー</button><button id="gpsBtn">GPS開始</button><button id="wakeLockBtn">画面ロック防止 OFF</button></div>
@@ -50,31 +50,49 @@
 </div>
 </section>
 
-<section class="panel testPanel">
-  <div class="panelTitle">室内テスト</div>
-  <div class="testGrid">
-    <label class="checkLabel">
-      <input id="testMode" class="commonSetting" type="checkbox">
-      室内テストを使用
-    </label>
-    <label>本線車 Test Speed [km/h]
-      <input id="testMainSpeed" class="commonSetting" type="number" min="0" step="1" value="50">
-    </label>
-    <label>本線車 Test 残距離 [m]
-      <input id="testMainRemaining" class="commonSetting" type="number" min="0" step="1" value="617">
-    </label>
-    <label>合流車 Test Speed [km/h]
-      <input id="testMergeSpeed" class="commonSetting" type="number" min="0" step="1" value="30">
-    </label>
-    <label>合流車 Test 残距離 [m]
-      <input id="testMergeRemaining" class="commonSetting" type="number" min="0" step="1" value="370">
-    </label>
+<details class="panel advancedTestPanel">
+  <summary>
+    <span>詳細設定 / 室内テスト</span>
+    <span class="summaryHint">通常運用では閉じたままでOK</span>
+  </summary>
+  <div class="advancedTestBody">
+    <div class="testGrid">
+      <label class="checkLabel">
+        <input id="testMode" class="commonSetting" type="checkbox">
+        室内テストを使用
+      </label>
+      <label>本線車 Test Speed [km/h]
+        <input id="testMainSpeed" class="commonSetting" type="number" min="0" step="1" value="50">
+      </label>
+      <label>本線車 開始残距離 [m]
+        <input id="testMainRemaining" class="commonSetting" type="number" min="0" step="1" value="617">
+      </label>
+      <label>合流車 Test Speed [km/h]
+        <input id="testMergeSpeed" class="commonSetting" type="number" min="0" step="1" value="30">
+      </label>
+      <label>合流車 開始残距離 [m]
+        <input id="testMergeRemaining" class="commonSetting" type="number" min="0" step="1" value="370">
+      </label>
+    </div>
+
+    <div class="indoorSimPanel">
+      <div class="panelSubTitle">疑似走行</div>
+      <div class="buttons wrap">
+        <button id="indoorRouteStartBtn" class="commonSettingAction">経路先頭からセット</button>
+        <button id="indoorSimStartBtn" class="primary commonSettingAction">▶ START</button>
+        <button id="indoorSimPauseBtn" class="commonSettingAction">Ⅱ PAUSE</button>
+        <button id="indoorSimResetBtn" class="commonSettingAction">↺ RESET</button>
+      </div>
+      <div id="indoorSimStatus" class="indoorSimStatus">停止中</div>
+    </div>
+
+    <div class="help">
+      本線経路・合流経路・合流ポイントを設定した状態で使用します。
+      STARTすると2台の疑似車両が設定経路上を走行し、地図上の位置、GAP、SPEED UP / SLOW DOWN / KEEPを確認できます。
+      疑似走行中もTest Speedを変更できるため、指示表示の切替確認にも使用できます。
+    </div>
   </div>
-  <div class="help">
-    ON時はGPS位置・経路投影に関係なく、上記の速度と残距離から両車ETAを即時計算します。
-    初期値では本線車/合流車とも約44.4秒なのでKEEPが正常です。速度や残距離を変えるとFAST/SLOW確認ができます。
-  </div>
-</section>
+</details>
 
 <section class="driverDashboard">
   <div id="driverHero" class="driverHero neutral">

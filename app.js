@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.6.2";
+const APP_VERSION="0.6.4";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map",{maxZoom:22}).setView([35.2281,138.8994],16);
@@ -182,6 +182,14 @@ let cloudLogs=[];
 let coursePresets=[];
 let wakeLockSentinel=null, wakeLockWanted=false;
 let setupOnline=false;
+let indoorSim={
+  running:false,
+  initialized:false,
+  remaining:{main:null,merge:null},
+  lastTs:0,
+  timer:null,
+  lastBroadcast:0
+};
 
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove("show"),1800)}
 function randomSession(){const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let s="MN";for(let i=0;i<5;i++)s+=c[Math.floor(Math.random()*c.length)];return s}
@@ -1151,19 +1159,82 @@ $("centerBtn").onclick=()=>{if(currentPos)map.setView([currentPos.lat,currentPos
 
 function toXY(p,refLat){const R=6371000,rad=Math.PI/180;return{x:R*(p.lng*rad)*Math.cos(refLat*rad),y:R*(p.lat*rad)}}
 function projectPointToRoute(p,route){if(!route||route.length<2)return null;const refLat=p.lat,P=toXY(p,refLat);let cum=0,best=null;for(let i=0;i<route.length-1;i++){const A=toXY(route[i],refLat),B=toXY(route[i+1],refLat),vx=B.x-A.x,vy=B.y-A.y,wx=P.x-A.x,wy=P.y-A.y,len2=vx*vx+vy*vy,t=len2?Math.max(0,Math.min(1,(wx*vx+wy*vy)/len2)):0,qx=A.x+t*vx,qy=A.y+t*vy,dx=P.x-qx,dy=P.y-qy,d2=dx*dx+dy*dy,segLen=Math.sqrt(len2);if(!best||d2<best.d2)best={d2,s:cum+t*segLen};cum+=segLen}return{...best,total:cum}}
+function bearingDeg(a,b){
+  const toRad=x=>x*Math.PI/180;
+  const toDeg=x=>x*180/Math.PI;
+  const y=Math.sin(toRad(b.lng-a.lng))*Math.cos(toRad(b.lat));
+  const x=Math.cos(toRad(a.lat))*Math.sin(toRad(b.lat))-
+          Math.sin(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.cos(toRad(b.lng-a.lng));
+  return (toDeg(Math.atan2(y,x))+360)%360;
+}
+
+function routePointAtS(route,s){
+  if(!Array.isArray(route)||route.length<2)return null;
+  let total=0;
+  const segs=[];
+  for(let i=0;i<route.length-1;i++){
+    const len=haversine(route[i],route[i+1]);
+    segs.push(len);
+    total+=len;
+  }
+  const target=Math.max(0,Math.min(total,s));
+  let cum=0;
+  for(let i=0;i<segs.length;i++){
+    const len=segs[i];
+    if(target<=cum+len || i===segs.length-1){
+      const t=len>0?Math.max(0,Math.min(1,(target-cum)/len)):0;
+      const a=route[i],b=route[i+1];
+      return{
+        lat:a.lat+(b.lat-a.lat)*t,
+        lng:a.lng+(b.lng-a.lng)*t,
+        heading:bearingDeg(a,b),
+        s:target,
+        total
+      };
+    }
+    cum+=len;
+  }
+  return null;
+}
+
+function routeMergeStation(r){
+  const rt=routes[r];
+  if(!mergePoint||!Array.isArray(rt)||rt.length<2)return null;
+  const p=projectPointToRoute(mergePoint,rt);
+  return p&&Number.isFinite(p.s)?p.s:null;
+}
+
+function indoorRouteReady(showAlert=false){
+  const missing=[];
+  if(!Array.isArray(routes.main)||routes.main.length<2)missing.push("本線経路");
+  if(!Array.isArray(routes.merge)||routes.merge.length<2)missing.push("合流経路");
+  if(!mergePoint)missing.push("合流ポイント");
+  if(missing.length){
+    if(showAlert)alert(`室内テストの前に設定してください。\n\n${missing.join(" / ")}`);
+    return false;
+  }
+  return true;
+}
+
+function getConfiguredTestRemaining(r){
+  const v=r==="main"?parseFloat($("testMainRemaining").value):parseFloat($("testMergeRemaining").value);
+  return Number.isFinite(v)?Math.max(0,v):null;
+}
+
 function getTestValues(r){
   const speedKmh=r==="main"?parseFloat($("testMainSpeed").value):parseFloat($("testMergeSpeed").value);
-  const remaining=r==="main"?parseFloat($("testMainRemaining").value):parseFloat($("testMergeRemaining").value);
-  const speed=Number.isFinite(speedKmh)?speedKmh/3.6:null;
-  return{
-    speed,
-    remaining:Number.isFinite(remaining)?Math.max(0,remaining):null
-  };
+  const speed=Number.isFinite(speedKmh)?Math.max(0,speedKmh)/3.6:null;
+  const remaining=indoorSim.initialized && Number.isFinite(indoorSim.remaining[r])
+    ? indoorSim.remaining[r]
+    : getConfiguredTestRemaining(r);
+  return{speed,remaining};
 }
+
 function getEffectiveSpeed(r,deviceSpeed){
-  if($("testMode").checked) return getTestValues(r).speed;
+  if($("testMode").checked)return getTestValues(r).speed;
   return Number.isFinite(deviceSpeed)?deviceSpeed:null;
 }
+
 function calcForRole(r,pos,sp){
   if($("testMode").checked){
     const t=getTestValues(r);
@@ -1179,36 +1250,172 @@ function calcForRole(r,pos,sp){
   return{remaining,eta};
 }
 
-async function publishIndoorTest(){
-  if(!$("testMode").checked) return;
-  const now=Date.now();
-  for(const r of ["main","merge"]){
-    const t=getTestValues(r);
-    const eta=Number.isFinite(t.speed)&&t.speed>0.01&&Number.isFinite(t.remaining)?t.remaining/t.speed:null;
-    const data={
-      lat:null,lng:null,
-      speed:t.speed,
-      accuracy:null,heading:null,
-      timestamp:now,
-      clientSentAt:now,
-      remaining:t.remaining,
-      eta,
-      testMode:true
-    };
-    telemetry[r]=data;
-    await sendBroadcast("telemetry",{role:r,data});
+function indoorTestDataForRole(r){
+  const t=getTestValues(r);
+  const eta=Number.isFinite(t.speed)&&t.speed>0.01&&Number.isFinite(t.remaining)?t.remaining/t.speed:null;
+  let lat=null,lng=null,heading=null;
+
+  if(indoorRouteReady(false) && Number.isFinite(t.remaining)){
+    const mergeS=routeMergeStation(r);
+    if(Number.isFinite(mergeS)){
+      const routeS=Math.max(0,mergeS-t.remaining);
+      const q=routePointAtS(routes[r],routeS);
+      if(q){
+        lat=q.lat;
+        lng=q.lng;
+        heading=q.heading;
+      }
+    }
   }
-  $("gpsSource").textContent="Indoor Test / GPS bypass for ETA";
+
+  return{
+    lat,lng,
+    speed:t.speed,
+    accuracy:0,
+    heading,
+    timestamp:Date.now(),
+    clientSentAt:Date.now(),
+    remaining:t.remaining,
+    eta,
+    testMode:true
+  };
+}
+
+function updateIndoorSimStatus(){
+  const el=$("indoorSimStatus");
+  if(!el)return;
+  if(!indoorSim.initialized){
+    el.textContent="停止中";
+    el.className="indoorSimStatus";
+    return;
+  }
+  const m=Number.isFinite(indoorSim.remaining.main)?indoorSim.remaining.main:0;
+  const g=Number.isFinite(indoorSim.remaining.merge)?indoorSim.remaining.merge:0;
+  el.textContent=`${indoorSim.running?"走行中":"一時停止"} / 本線 残${m.toFixed(0)}m / 合流 残${g.toFixed(0)}m`;
+  el.className=`indoorSimStatus ${indoorSim.running?"running":"paused"}`;
+}
+
+function stopIndoorSimulation(clearInitialized=false){
+  indoorSim.running=false;
+  if(indoorSim.timer){
+    clearInterval(indoorSim.timer);
+    indoorSim.timer=null;
+  }
+  if(clearInitialized){
+    indoorSim.initialized=false;
+    indoorSim.remaining.main=null;
+    indoorSim.remaining.merge=null;
+  }
+  updateIndoorSimStatus();
+}
+
+function setIndoorStartFromRoute(){
+  if(!indoorRouteReady(true))return false;
+  const mainS=routeMergeStation("main");
+  const mergeS=routeMergeStation("merge");
+  if(!Number.isFinite(mainS)||!Number.isFinite(mergeS)){
+    alert("合流ポイントを経路へ投影できませんでした");
+    return false;
+  }
+  $("testMainRemaining").value=Math.round(mainS);
+  $("testMergeRemaining").value=Math.round(mergeS);
+  resetIndoorSimulation();
+  toast("経路先頭を疑似走行開始位置に設定しました");
+  return true;
+}
+
+function resetIndoorSimulation(){
+  stopIndoorSimulation(false);
+  if(!indoorRouteReady(true)){
+    indoorSim.initialized=false;
+    updateIndoorSimStatus();
+    return false;
+  }
+
+  for(const r of ["main","merge"]){
+    const mergeS=routeMergeStation(r);
+    const configured=getConfiguredTestRemaining(r);
+    indoorSim.remaining[r]=Number.isFinite(mergeS) && Number.isFinite(configured)
+      ? Math.max(0,Math.min(mergeS,configured))
+      : 0;
+  }
+
+  indoorSim.initialized=true;
+  indoorSim.lastTs=performance.now();
+  indoorSim.lastBroadcast=0;
+  updateIndoorSimStatus();
+  publishIndoorTest(true);
+  return true;
+}
+
+async function publishIndoorTest(broadcast=true){
+  if(!$("testMode").checked)return;
+  const payloads=[];
+  for(const r of ["main","merge"]){
+    const data=indoorTestDataForRole(r);
+    telemetry[r]=data;
+    if(broadcast)payloads.push(sendBroadcast("telemetry",{role:r,data}));
+  }
+
+  $("gpsSource").textContent="Indoor Simulation / configured routes";
   if(isSetup()){
     $("speed").textContent="-- km/h";
     $("remaining").textContent="-- m";
-  }else{
+  }else if(role()==="main" || role()==="merge"){
     const own=getTestValues(role());
     $("speed").textContent=Number.isFinite(own.speed)?`${(own.speed*3.6).toFixed(1)} km/h`:"-- km/h";
     $("remaining").textContent=Number.isFinite(own.remaining)?`${own.remaining.toFixed(1)} m`:"-- m";
   }
+
   refreshDashboard();
+  if(payloads.length)await Promise.allSettled(payloads);
 }
+
+function indoorSimulationStep(){
+  if(!indoorSim.running || !$("testMode").checked)return;
+  const now=performance.now();
+  const dt=Math.max(0,Math.min(0.5,(now-indoorSim.lastTs)/1000));
+  indoorSim.lastTs=now;
+
+  for(const r of ["main","merge"]){
+    const speed=getTestValues(r).speed;
+    if(Number.isFinite(speed) && Number.isFinite(indoorSim.remaining[r])){
+      indoorSim.remaining[r]=Math.max(0,indoorSim.remaining[r]-speed*dt);
+    }
+  }
+
+  const shouldBroadcast=(now-indoorSim.lastBroadcast)>=500;
+  if(shouldBroadcast)indoorSim.lastBroadcast=now;
+  publishIndoorTest(shouldBroadcast);
+  updateIndoorSimStatus();
+
+  if(indoorSim.remaining.main<=0 && indoorSim.remaining.merge<=0){
+    stopIndoorSimulation(false);
+    toast("疑似走行 完了");
+  }
+}
+
+function startIndoorSimulation(){
+  if(!canEditCommon()){
+    alert(setupOnline?"SETUP端末から室内テストを操作してください":"MASTERまたはSETUP端末から操作してください");
+    return;
+  }
+  if(!indoorRouteReady(true))return;
+
+  if(!$("testMode").checked){
+    $("testMode").checked=true;
+    publishCommonSettings();
+  }
+
+  if(!indoorSim.initialized && !resetIndoorSimulation())return;
+
+  indoorSim.running=true;
+  indoorSim.lastTs=performance.now();
+  if(!indoorSim.timer)indoorSim.timer=setInterval(indoorSimulationStep,100);
+  updateIndoorSimStatus();
+  toast("疑似走行 START");
+}
+
 
 function targetGapSeconds(){
   const pos=$("targetPosition")?.value || "same";
@@ -1318,7 +1525,7 @@ function refreshDashboard(){
 
   const gap=currentControlGap(m,g);
   if(!Number.isFinite(gap)){
-    inst.textContent="WAIT";
+    inst.innerHTML='<span class="instructionLabel">WAIT</span>';
     inst.className="instructionText neutral";
     d.textContent="--.- s";
     d.className="driverGap neutral";
@@ -1337,7 +1544,7 @@ function refreshDashboard(){
   const error=gap-target;
 
   if(Math.abs(error)<=tol){
-    inst.textContent="KEEP";
+    inst.innerHTML='<span class="instructionDot">●</span><span class="instructionLabel">KEEP</span>';
     inst.className="instructionText ok";
     if(hero)hero.className="driverHero ok";
     return;
@@ -1345,12 +1552,12 @@ function refreshDashboard(){
 
   if(error>0){
     // Control vehicle is later than target -> accelerate.
-    inst.textContent="↑";
+    inst.innerHTML='<span class="instructionArrow">↑</span><span class="instructionLabel">SPEED UP</span>';
     inst.className="instructionText fast";
     if(hero)hero.className="driverHero fast";
   }else{
     // Control vehicle is earlier than target -> slow down.
-    inst.textContent="↓";
+    inst.innerHTML='<span class="instructionArrow">↓</span><span class="instructionLabel">SLOW DOWN</span>';
     inst.className="instructionText slow";
     if(hero)hero.className="driverHero slow";
   }
@@ -1377,21 +1584,54 @@ $("testMode").onchange=async()=>{
   await publishCommonSettings();
   if($("testMode").checked){
     toast("室内テストON");
-    await publishIndoorTest();
+    if(indoorRouteReady(false))resetIndoorSimulation();
+    else await publishIndoorTest(true);
   }else{
+    stopIndoorSimulation(true);
     toast("実GPSモード");
     $("gpsSource").textContent="Device Geolocation / High Accuracy";
     telemetry.main=null;
     telemetry.merge=null;
+    updateVehicleMapMarker("main",null);
+    updateVehicleMapMarker("merge",null);
     refreshDashboard();
     await sendState();
   }
 };
-for(const id of ["testMainSpeed","testMainRemaining","testMergeSpeed","testMergeRemaining"]){
+
+for(const id of ["testMainSpeed","testMergeSpeed"]){
   $(id).oninput=async()=>{
     if(!canEditCommon())return;
     await publishCommonSettings();
-    if($("testMode").checked)await publishIndoorTest();
+    if($("testMode").checked)await publishIndoorTest(true);
   };
 }
+
+for(const id of ["testMainRemaining","testMergeRemaining"]){
+  $(id).oninput=async()=>{
+    if(!canEditCommon())return;
+    await publishCommonSettings();
+    if($("testMode").checked && !indoorSim.running){
+      indoorSim.initialized=false;
+      resetIndoorSimulation();
+    }
+  };
+}
+
+$("indoorRouteStartBtn").onclick=async()=>{
+  if(!canEditCommon())return;
+  if(setIndoorStartFromRoute())await publishCommonSettings();
+};
+$("indoorSimStartBtn").onclick=startIndoorSimulation;
+$("indoorSimPauseBtn").onclick=()=>{
+  if(!canEditCommon())return;
+  stopIndoorSimulation(false);
+  publishIndoorTest(true);
+  toast("疑似走行 PAUSE");
+};
+$("indoorSimResetBtn").onclick=()=>{
+  if(!canEditCommon())return;
+  resetIndoorSimulation();
+  toast("疑似走行 RESET");
+};
 setInterval(()=>{$("cloudAge").textContent=lastCloudRx?`${((Date.now()-lastCloudRx)/1000).toFixed(1)} s`:"-- s";$("age").textContent=lastGpsTimestamp?`${Math.max(0,(Date.now()-lastGpsTimestamp)/1000).toFixed(2)} s`:"-- s";refreshDashboard();if(logRecording)updateLogUi()},500);
