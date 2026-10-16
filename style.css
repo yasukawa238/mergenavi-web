@@ -570,3 +570,179 @@ body.role-setup .setupRouteTargetRow{
     margin-right:0;
   }
 }
+
+/* v0.6.0 Driver-first HMI */
+.driverDashboard{
+  padding:8px;
+  background:#0d1117;
+}
+.driverHero{
+  border:2px solid #30363d;
+  border-radius:16px;
+  background:#111820;
+  padding:10px 12px 14px;
+  text-align:center;
+  box-shadow:0 6px 24px rgba(0,0,0,.22);
+}
+.driverHero.fast{border-color:rgba(255,80,80,.62)}
+.driverHero.slow{border-color:rgba(86,156,255,.62)}
+.driverHero.ok{border-color:rgba(68,205,110,.62)}
+.driverHero.neutral{border-color:#30363d}
+
+.driverHeroTop{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.targetGapSummary{
+  font-size:15px;
+  font-weight:900;
+  color:#f0f3f6;
+  padding:7px 10px;
+  border:1px solid #39414a;
+  border-radius:10px;
+  background:#0d1117;
+}
+
+.driverHero .instructionText{
+  margin:4px 0 0;
+  font-size:88px;
+  line-height:1;
+  min-height:96px;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  font-weight:1000;
+  letter-spacing:.02em;
+}
+.driverHero .instructionText.fast{color:#ff4d4f}
+.driverHero .instructionText.slow{color:#4f9cff}
+.driverHero .instructionText.ok{color:#3bd16f}
+.driverHero .instructionText.neutral{color:#c9d1d9}
+
+.gapBlock{
+  margin-top:0;
+}
+.gapLabel{
+  font-size:13px;
+  font-weight:900;
+  color:#9da7b1;
+  letter-spacing:.12em;
+}
+.driverGap{
+  font-size:54px;
+  line-height:1.05;
+  font-weight:1000;
+  font-variant-numeric:tabular-nums;
+}
+.driverGap.late{color:#ff4d4f}
+.driverGap.early{color:#4f9cff}
+.driverGap.zero{color:#3bd16f}
+.driverGap.neutral{color:#c9d1d9}
+.gapHelp{
+  margin-top:3px;
+  font-size:12px;
+  color:#8b949e;
+}
+
+.etaRow{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-top:8px;
+}
+.etaCard .big{
+  font-size:36px;
+}
+.mainEtaCard{border-top:3px solid #3b82f6}
+.mergeEtaCard{border-top:3px solid #f59e0b}
+
+/* Large map for real driving */
+#map{
+  height:64dvh;
+  min-height:500px;
+  max-height:900px;
+}
+
+/* Vehicle position markers */
+.vehicleMapIcon{
+  background:transparent!important;
+  border:0!important;
+}
+.vehicleMarker{
+  position:relative;
+  width:58px;
+  height:58px;
+  transform:translate(-7px,-7px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  filter:drop-shadow(0 3px 5px rgba(0,0,0,.55));
+}
+.vehicleMarkerCore{
+  width:42px;
+  height:42px;
+  border-radius:50%;
+  border:4px solid #fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:20px;
+  font-weight:1000;
+}
+.vehicleMarker.main .vehicleMarkerCore{background:#2563eb;color:white}
+.vehicleMarker.merge .vehicleMarkerCore{background:#f59e0b;color:#111}
+.vehicleHeading{
+  position:absolute;
+  top:-6px;
+  left:19px;
+  transform-origin:10px 35px;
+  font-size:20px;
+  line-height:20px;
+  color:#fff;
+  text-shadow:0 2px 4px #000;
+}
+.vehicleMarkerName{
+  position:absolute;
+  top:45px;
+  left:50%;
+  transform:translateX(-50%);
+  white-space:nowrap;
+  background:rgba(13,17,23,.88);
+  color:#fff;
+  border-radius:5px;
+  padding:2px 5px;
+  font-size:10px;
+  font-weight:900;
+}
+.vehicleLegend{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin:-2px 0 10px;
+  font-size:12px;
+  font-weight:900;
+}
+.legendItem.main{color:#79b8ff}
+.legendItem.merge{color:#ffc46b}
+.legendItem.mergePoint{color:#f2cc60}
+
+@media(max-width:760px){
+  .driverDashboard{padding:6px}
+  .driverHero{padding:8px 8px 12px}
+  .driverHeroTop{justify-content:center}
+  .driverHero .instructionText{
+    font-size:108px;
+    min-height:116px;
+  }
+  .driverGap{font-size:64px}
+  .targetGapSummary{font-size:14px}
+  .etaCard .big{font-size:34px}
+  #map{
+    height:62dvh;
+    min-height:460px;
+    max-height:none;
+  }
+}

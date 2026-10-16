@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.5.9</title>
+<title>MergeNavi Cloud v0.6.0</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -12,7 +12,7 @@
   <div>
     <div class="titleRow">
       <h1>MergeNavi Cloud</h1>
-      <span class="versionBadge">Ver 0.5.9</span>
+      <span class="versionBadge">Ver 0.6.0</span>
       <span id="roleBadge" class="roleBadge merge">合流車</span><span id="masterBadge" class="masterBadge follower">FOLLOWER</span>
     </div>
     <div class="sub">Supabase Realtime / Smartphone GPS PoC</div>
@@ -28,6 +28,13 @@
 <label>Session ID<div class="sessionRow"><input id="sessionId" maxlength="20"><button id="copySessionBtn">IDコピー</button><button id="newSessionBtn">生成</button></div></label>
 <label>端末役割<select id="role"><option value="merge">合流車</option><option value="main">本線車</option><option value="setup">SETUP（設定専用PC）</option></select></label>
 <label>速度調整する車両<select id="controlRole" class="commonSetting"><option value="merge">合流車</option><option value="main">本線車</option></select></label>
+<label>目標位置<select id="targetPosition" class="commonSetting">
+  <option value="same">同時</option>
+  <option value="front">相手車の前</option>
+  <option value="behind">相手車の後ろ</option>
+</select></label>
+<label>目標距離 [m]<input id="targetGapM" class="commonSetting" type="number" min="0" step="1" value="10"></label>
+<label>合流部基準速度 [km/h]<input id="mergeReferenceSpeed" class="commonSetting" type="number" min="1" step="1" value="50"></label>
 <label>判定許容差 [s]<input id="tolerance" class="commonSetting" type="number" min="0.1" step="0.1" value="0.5"></label>
 </div>
 <div class="buttons"><button id="joinBtn" class="primary">Realtime接続</button><button id="copyLinkBtn">共有リンクコピー</button><button id="gpsBtn">GPS開始</button><button id="wakeLockBtn">画面ロック防止 OFF</button></div>
@@ -69,14 +76,37 @@
   </div>
 </section>
 
-<section class="dashboard">
-<div class="card"><div class="label">本線車 ETA</div><div id="mainEta" class="big">--.- s</div><div id="mainDetail" class="small">待機中</div></div>
-<div class="card"><div class="label">合流車 ETA</div><div id="mergeEta" class="big">--.- s</div><div id="mergeDetail" class="small">待機中</div></div>
-<div class="card instruction"><div class="label">タイミング指示</div><div id="controlTargetBanner" class="controlTargetBanner main">
-  <span class="controlTargetLabel">調整対象</span>
-  <span id="controlTargetText" class="controlTargetText">本線車</span>
-</div>
-<div id="instruction" class="instructionText neutral">WAIT</div><div id="delta" class="small">ΔT --.- s</div></div>
+<section class="driverDashboard">
+  <div id="driverHero" class="driverHero neutral">
+    <div class="driverHeroTop">
+      <div id="controlTargetBanner" class="controlTargetBanner main">
+        <span class="controlTargetLabel">調整対象</span>
+        <span id="controlTargetText" class="controlTargetText">本線車</span>
+      </div>
+      <div id="targetGapSummary" class="targetGapSummary">目標：同時</div>
+    </div>
+
+    <div id="instruction" class="instructionText neutral">WAIT</div>
+
+    <div class="gapBlock">
+      <div class="gapLabel">GAP</div>
+      <div id="delta" class="driverGap neutral">--.- s</div>
+      <div class="gapHelp">＋：遅れ / －：先行</div>
+    </div>
+  </div>
+
+  <div class="etaRow">
+    <div class="card etaCard mainEtaCard">
+      <div class="label">本線車 ETA</div>
+      <div id="mainEta" class="big">--.- s</div>
+      <div id="mainDetail" class="small">待機中</div>
+    </div>
+    <div class="card etaCard mergeEtaCard">
+      <div class="label">合流車 ETA</div>
+      <div id="mergeEta" class="big">--.- s</div>
+      <div id="mergeDetail" class="small">待機中</div>
+    </div>
+  </div>
 </section>
 
 
@@ -109,6 +139,11 @@
       <option value="esri">航空写真（Esri）</option>
       <option value="street">地図</option>
     </select>
+  </div>
+  <div class="vehicleLegend">
+    <span class="legendItem main">● 本線車</span>
+    <span class="legendItem merge">● 合流車</span>
+    <span class="legendItem mergePoint">★ 合流点</span>
   </div>
 
   <div id="setupRouteTargetRow" class="setupRouteTargetRow">

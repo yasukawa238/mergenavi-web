@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.5.9";
+const APP_VERSION="0.6.0";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map",{maxZoom:22}).setView([35.2281,138.8994],16);
@@ -175,6 +175,7 @@ mapEl.addEventListener("touchend",(ev)=>{
 
 const clientId=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2);
 let channel=null,joined=false,mode=null,panMode=false,watchId=null,mergePoint=null,mergeMarker=null,currentPos=null,currentMarker=null;
+const vehicleMarkers={main:null,merge:null};
 let drawPoints=[],routes={main:[],merge:[]},routeLayers={main:null,merge:null},previewLayer=null,telemetry={main:null,merge:null},speedEMA=null,lastGeo=null,lastCloudRx=0,lastGpsTimestamp=0;
 let logRecording=false, driveLog=[], logStartedAt=null, lastLogAccepted=null;
 let cloudLogs=[];
@@ -363,6 +364,9 @@ function updateControlTargetUi(showToast=false){
 function collectCommonSettings(){
   return {
     controlRole:$("controlRole").value,
+    targetPosition:$("targetPosition").value,
+    targetGapM:parseFloat($("targetGapM").value),
+    mergeReferenceSpeed:parseFloat($("mergeReferenceSpeed").value),
     tolerance:parseFloat($("tolerance").value),
     testMode:$("testMode").checked,
     testMainSpeed:parseFloat($("testMainSpeed").value),
@@ -376,6 +380,9 @@ function collectCommonSettings(){
 function applyCommonSettings(s){
   if(!s)return;
   if(s.controlRole!=null)$("controlRole").value=s.controlRole;
+  if(s.targetPosition!=null)$("targetPosition").value=s.targetPosition;
+  if(Number.isFinite(s.targetGapM))$("targetGapM").value=s.targetGapM;
+  if(Number.isFinite(s.mergeReferenceSpeed))$("mergeReferenceSpeed").value=s.mergeReferenceSpeed;
   if(Number.isFinite(s.tolerance))$("tolerance").value=s.tolerance;
   if(typeof s.testMode==="boolean")$("testMode").checked=s.testMode;
   if(Number.isFinite(s.testMainSpeed))$("testMainSpeed").value=s.testMainSpeed;
@@ -937,6 +944,10 @@ async function onGeo(g){
     eta_s:Number.isFinite(data.eta)?data.eta:null,
     other_eta_s:Number.isFinite(otherEta)?otherEta:null,
     delta_t_s:Number.isFinite(delta)?delta:null,
+    control_gap_s:Number.isFinite(currentControlGap(telemetry.main,telemetry.merge))?currentControlGap(telemetry.main,telemetry.merge):null,
+    target_gap_s:targetGapSeconds(),
+    target_position:$("targetPosition")?.value || "same",
+    target_gap_m:Math.max(0,parseFloat($("targetGapM")?.value)||0),
     cloud_age_s:lastCloudRx?((Date.now()-lastCloudRx)/1000):null,
     session_id:sessionId()
   });
@@ -1005,6 +1016,72 @@ async function publishIndoorTest(){
   }
   refreshDashboard();
 }
+
+function targetGapSeconds(){
+  const pos=$("targetPosition")?.value || "same";
+  if(pos==="same")return 0;
+
+  const gapM=Math.max(0,parseFloat($("targetGapM")?.value)||0);
+  const refKmh=Math.max(1,parseFloat($("mergeReferenceSpeed")?.value)||50);
+  const sec=gapM/(refKmh/3.6);
+
+  // GAP = ETA(control) - ETA(other)
+  // 前: controlが先に到達 => negative
+  // 後: controlが後に到達 => positive
+  return pos==="front" ? -sec : sec;
+}
+
+function targetGapText(){
+  const pos=$("targetPosition")?.value || "same";
+  if(pos==="same")return "目標：同時";
+  const gapM=Math.max(0,parseFloat($("targetGapM")?.value)||0);
+  const t=targetGapSeconds();
+  return `目標：${pos==="front"?"前":"後ろ"} ${gapM.toFixed(0)} m (${t>=0?"+":""}${t.toFixed(2)} s)`;
+}
+
+function currentControlGap(m,g){
+  const control=$("controlRole").value;
+  if(!m||!g||!Number.isFinite(m.eta)||!Number.isFinite(g.eta))return null;
+  return control==="main" ? m.eta-g.eta : g.eta-m.eta;
+}
+
+function vehicleMarkerHtml(r,data){
+  const heading=Number.isFinite(data?.heading)?data.heading:0;
+  const hasHeading=Number.isFinite(data?.heading);
+  const label=r==="main"?"MAIN":"MERGE";
+  return `<div class="vehicleMarker ${r}">
+    ${hasHeading?`<div class="vehicleHeading" style="transform:rotate(${heading}deg)">▲</div>`:""}
+    <div class="vehicleMarkerCore">${r==="main"?"M":"G"}</div>
+    <div class="vehicleMarkerName">${label}</div>
+  </div>`;
+}
+
+function updateVehicleMapMarker(r,data){
+  if(!data || !Number.isFinite(data.lat) || !Number.isFinite(data.lng)){
+    if(vehicleMarkers[r]){
+      try{map.removeLayer(vehicleMarkers[r])}catch{}
+      vehicleMarkers[r]=null;
+    }
+    return;
+  }
+
+  const icon=L.divIcon({
+    className:"vehicleMapIcon",
+    html:vehicleMarkerHtml(r,data),
+    iconSize:[58,58],
+    iconAnchor:[29,29]
+  });
+
+  if(!vehicleMarkers[r]){
+    vehicleMarkers[r]=L.marker([data.lat,data.lng],{icon,zIndexOffset:r==="main"?800:810})
+      .addTo(map)
+      .bindTooltip(r==="main"?"本線車":"合流車",{direction:"top",offset:[0,-28]});
+  }else{
+    vehicleMarkers[r].setLatLng([data.lat,data.lng]);
+    vehicleMarkers[r].setIcon(icon);
+  }
+}
+
 function renderVehicle(r,data){
   const e=$(r+"Eta"),d=$(r+"Detail");
   if(!data){e.textContent="--.- s";d.textContent="待機中";return}
@@ -1013,8 +1090,72 @@ function renderVehicle(r,data){
   const age=Number.isFinite(data.clientSentAt)?(Date.now()-data.clientSentAt)/1000:null;
   d.innerHTML=`${kmh!=null?kmh.toFixed(1)+" km/h":"-- km/h"} / ${Number.isFinite(data.remaining)?data.remaining.toFixed(0)+" m":"-- m"}${data.testMode?'<span class="testTag">TEST</span>':(age!=null?" / "+age.toFixed(1)+"s old":"")}`;
 }
-function refreshDashboard(){const m=telemetry.main,g=telemetry.merge;renderVehicle("main",m);renderVehicle("merge",g);const inst=$("instruction"),d=$("delta"),tol=Math.max(.1,parseFloat($("tolerance").value)||.5),control=$("controlRole").value;if(!m||!g||!Number.isFinite(m.eta)||!Number.isFinite(g.eta)){inst.textContent="WAIT";inst.className="instructionText neutral";d.textContent="ΔT --.- s";return}const delta=m.eta-g.eta;d.textContent=`ΔT 本線-合流 = ${delta>=0?"+":""}${delta.toFixed(2)} s`;if(Math.abs(delta)<=tol){inst.textContent="KEEP";inst.className="instructionText ok";return}if(control==="main"){if(delta<0){inst.textContent="本線車 SLOW";inst.className="instructionText slow"}else{inst.textContent="本線車 FAST";inst.className="instructionText fast"}}else{if(delta<0){inst.textContent="合流車 FAST";inst.className="instructionText fast"}else{inst.textContent="合流車 SLOW";inst.className="instructionText slow"}}}
+function refreshDashboard(){
+  const m=telemetry.main,g=telemetry.merge;
+  renderVehicle("main",m);
+  renderVehicle("merge",g);
+  updateVehicleMapMarker("main",m);
+  updateVehicleMapMarker("merge",g);
+
+  const inst=$("instruction");
+  const d=$("delta");
+  const hero=$("driverHero");
+  const targetSummary=$("targetGapSummary");
+  const tol=Math.max(.1,parseFloat($("tolerance").value)||.5);
+
+  if(targetSummary)targetSummary.textContent=targetGapText();
+
+  const gap=currentControlGap(m,g);
+  if(!Number.isFinite(gap)){
+    inst.textContent="WAIT";
+    inst.className="instructionText neutral";
+    d.textContent="--.- s";
+    d.className="driverGap neutral";
+    if(hero)hero.className="driverHero neutral";
+    return;
+  }
+
+  // Race-style GAP:
+  // + = control vehicle is later/behind, - = control vehicle is earlier/ahead.
+  d.textContent=`${gap>=0?"+":""}${gap.toFixed(2)} s`;
+  if(Math.abs(gap)<0.05)d.className="driverGap zero";
+  else if(gap>0)d.className="driverGap late";
+  else d.className="driverGap early";
+
+  const target=targetGapSeconds();
+  const error=gap-target;
+
+  if(Math.abs(error)<=tol){
+    inst.textContent="KEEP";
+    inst.className="instructionText ok";
+    if(hero)hero.className="driverHero ok";
+    return;
+  }
+
+  if(error>0){
+    // Control vehicle is later than target -> accelerate.
+    inst.textContent="↑";
+    inst.className="instructionText fast";
+    if(hero)hero.className="driverHero fast";
+  }else{
+    // Control vehicle is earlier than target -> slow down.
+    inst.textContent="↓";
+    inst.className="instructionText slow";
+    if(hero)hero.className="driverHero slow";
+  }
+}
 $("tolerance").oninput=async()=>{refreshDashboard();if(canEditCommon())await publishCommonSettings();};
+for(const id of ["targetPosition","targetGapM","mergeReferenceSpeed"]){
+  $(id).oninput=async()=>{
+    refreshDashboard();
+    if(canEditCommon())await publishCommonSettings();
+  };
+  $(id).onchange=async()=>{
+    refreshDashboard();
+    if(canEditCommon())await publishCommonSettings();
+  };
+}
+
 $("controlRole").onchange=async()=>{
   updateControlTargetUi(true);
   refreshDashboard();
