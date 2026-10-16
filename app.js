@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
-const APP_VERSION="0.6.0";
+const APP_VERSION="0.6.2";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 const map=L.map("map",{maxZoom:22}).setView([35.2281,138.8994],16);
@@ -179,6 +179,7 @@ const vehicleMarkers={main:null,merge:null};
 let drawPoints=[],routes={main:[],merge:[]},routeLayers={main:null,merge:null},previewLayer=null,telemetry={main:null,merge:null},speedEMA=null,lastGeo=null,lastCloudRx=0,lastGpsTimestamp=0;
 let logRecording=false, driveLog=[], logStartedAt=null, lastLogAccepted=null;
 let cloudLogs=[];
+let coursePresets=[];
 let wakeLockSentinel=null, wakeLockWanted=false;
 let setupOnline=false;
 
@@ -239,6 +240,14 @@ function updateMasterUi(){
   for(const el of document.querySelectorAll(".commonSettingAction")){
     el.disabled=!commonEditable;
     el.classList.toggle("setupLocked",!commonEditable);
+  }
+
+  for(const id of ["coursePresetName","coursePresetSaveBtn","coursePresetApplyBtn"]){
+    const el=$(id);
+    if(el){
+      el.disabled=!commonEditable;
+      el.classList.toggle("setupLocked",!commonEditable);
+    }
   }
 
   // SETUP接続中は、スマホ側の地図設定をロックしてPCへ集約。
@@ -638,7 +647,24 @@ map.on("click",e=>{
   }
 });
 function setMergePoint(p){mergePoint=p;if(mergeMarker)map.removeLayer(mergeMarker);mergeMarker=L.marker([p.lat,p.lng]).addTo(map).bindPopup("合流点")}
-function setRoute(r,points){routes[r]=points||[];if(routeLayers[r]){map.removeLayer(routeLayers[r]);routeLayers[r]=null}if(routes[r].length>=2)routeLayers[r]=L.polyline(routes[r].map(p=>[p.lat,p.lng]),{weight:6,opacity:.85,dashArray:r==="main"?null:"10 6"}).addTo(map)}
+function setRoute(r,points){
+  routes[r]=points||[];
+  if(routeLayers[r]){
+    map.removeLayer(routeLayers[r]);
+    routeLayers[r]=null;
+  }
+  if(routes[r].length>=2){
+    routeLayers[r]=L.polyline(
+      routes[r].map(p=>[p.lat,p.lng]),
+      {
+        color:r==="main"?"#3b82f6":"#f59e0b",
+        weight:6,
+        opacity:.92,
+        dashArray:r==="main"?null:"10 6"
+      }
+    ).addTo(map);
+  }
+}
 function previewRoute(){if(previewLayer){map.removeLayer(previewLayer);previewLayer=null}if(drawPoints.length)previewLayer=L.polyline(drawPoints.map(p=>[p.lat,p.lng]),{weight:5,opacity:.7,dashArray:"4 8"}).addTo(map)}
 
 
@@ -739,6 +765,165 @@ async function saveLogToSupabase(){
   }
 
   toast(`走行ログ「${payload.log_name}」を保存しました`);
+}
+
+
+function coursePresetSettings(){
+  return {
+    controlRole:$("controlRole").value,
+    targetPosition:$("targetPosition").value,
+    targetGapM:parseFloat($("targetGapM").value),
+    mergeReferenceSpeed:parseFloat($("mergeReferenceSpeed").value),
+    tolerance:parseFloat($("tolerance").value)
+  };
+}
+
+function makeDefaultCoursePresetName(){
+  const d=new Date();
+  const pad=n=>String(n).padStart(2,"0");
+  return `コース_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
+function validateCoursePresetReady(){
+  if(!Array.isArray(routes.main) || routes.main.length<2){
+    alert("本線経路が設定されていません");
+    return false;
+  }
+  if(!Array.isArray(routes.merge) || routes.merge.length<2){
+    alert("合流経路が設定されていません");
+    return false;
+  }
+  if(!mergePoint || !Number.isFinite(mergePoint.lat) || !Number.isFinite(mergePoint.lng)){
+    alert("合流ポイントが設定されていません");
+    return false;
+  }
+  return true;
+}
+
+async function saveCoursePreset(){
+  if(!canEditCommon()){
+    alert(setupOnline ? "SETUP端末から保存してください" : "本線車MASTERまたはSETUP端末から保存してください");
+    return;
+  }
+  if(!validateCoursePresetReady())return;
+
+  const name=$("coursePresetName").value.trim() || makeDefaultCoursePresetName();
+  $("coursePresetName").value=name;
+
+  const payload={
+    preset_name:name,
+    main_route:routes.main,
+    merge_route:routes.merge,
+    merge_point:mergePoint,
+    settings:coursePresetSettings(),
+    app_version:APP_VERSION
+  };
+
+  const {error}=await supabase.from("course_presets").insert(payload);
+  if(error){
+    console.error(error);
+    alert("コースプリセットを保存できませんでした。\nSupabaseで supabase_upgrade_v0.6.1.sql を一度実行してください。\n\n"+error.message);
+    return;
+  }
+  toast(`コース「${name}」を保存しました`);
+  await loadCoursePresets();
+}
+
+function formatCoursePresetLabel(row){
+  const d=new Date(row.created_at);
+  const dateText=Number.isNaN(d.getTime()) ? "日時不明" : d.toLocaleString("ja-JP");
+  return `${row.preset_name || "名称なし"}｜${dateText}`;
+}
+
+async function loadCoursePresets(){
+  const select=$("coursePresetSelect");
+  const info=$("coursePresetInfo");
+  if(select)select.innerHTML='<option value="">取得中...</option>';
+
+  const {data,error}=await supabase
+    .from("course_presets")
+    .select("id,created_at,preset_name,main_route,merge_route,merge_point,settings,app_version")
+    .order("created_at",{ascending:false})
+    .limit(50);
+
+  if(error){
+    console.error(error);
+    if(select)select.innerHTML='<option value="">取得エラー</option>';
+    if(info)info.textContent=`プリセット取得エラー: ${error.message}`;
+    alert("コースプリセットを取得できませんでした。\nSupabaseで supabase_upgrade_v0.6.1.sql を一度実行してください。\n\n"+error.message);
+    return;
+  }
+
+  coursePresets=Array.isArray(data)?data:[];
+  if(!coursePresets.length){
+    if(select)select.innerHTML='<option value="">保存プリセットなし</option>';
+    if(info)info.textContent="保存済みコースプリセットはありません。";
+    return;
+  }
+
+  if(select){
+    select.innerHTML='<option value="">コースプリセットを選択...</option>';
+    for(const row of coursePresets){
+      const opt=document.createElement("option");
+      opt.value=String(row.id);
+      opt.textContent=formatCoursePresetLabel(row);
+      select.appendChild(opt);
+    }
+  }
+  if(info)info.textContent=`コースプリセット ${coursePresets.length}件を取得しました。`;
+  toast(`プリセット ${coursePresets.length}件`);
+}
+
+async function applySelectedCoursePreset(){
+  if(!canEditCommon()){
+    alert(setupOnline ? "SETUP端末から読み込んでください" : "本線車MASTERまたはSETUP端末から読み込んでください");
+    return;
+  }
+
+  const id=$("coursePresetSelect")?.value;
+  if(!id){alert("コースプリセットを選択してください");return}
+
+  const row=coursePresets.find(x=>String(x.id)===String(id));
+  if(!row){alert("選択したプリセットが見つかりません。再取得してください");return}
+  if(!Array.isArray(row.main_route) || row.main_route.length<2 ||
+     !Array.isArray(row.merge_route) || row.merge_route.length<2 ||
+     !row.merge_point){
+    alert("このプリセットには必要なコース情報が揃っていません");
+    return;
+  }
+
+  setRoute("main",row.main_route,false);
+  setRoute("merge",row.merge_route,false);
+  setMergePoint(row.merge_point,false);
+
+  if(row.settings){
+    applyCommonSettings({
+      ...row.settings,
+      mergePoint:row.merge_point
+    });
+  }
+
+  // 画面をコース全体へ合わせる
+  try{
+    const all=[
+      ...row.main_route.map(p=>[p.lat,p.lng]),
+      ...row.merge_route.map(p=>[p.lat,p.lng]),
+      [row.merge_point.lat,row.merge_point.lng]
+    ];
+    map.fitBounds(L.latLngBounds(all),{padding:[24,24]});
+  }catch{}
+
+  // Realtime接続中なら3点セットを一括共有
+  await Promise.allSettled([
+    sendBroadcast("route",{role:"main",points:row.main_route,sentAt:Date.now(),fromRole:role()}),
+    sendBroadcast("route",{role:"merge",points:row.merge_route,sentAt:Date.now(),fromRole:role()}),
+    sendBroadcast("mergePoint",{point:row.merge_point,sentAt:Date.now(),fromRole:role()}),
+    publishCommonSettings()
+  ]);
+
+  const info=$("coursePresetInfo");
+  if(info)info.textContent=`読込済み：${formatCoursePresetLabel(row)} / 本線${row.main_route.length}点・合流${row.merge_route.length}点`;
+  toast(`コース「${row.preset_name || "名称なし"}」を読み込み・共有しました`);
 }
 
 function formatCloudLogLabel(row){
@@ -858,6 +1043,14 @@ $("logClearBtn").onclick=()=>{
 
 $("logCsvBtn").onclick=downloadCsv;
 $("logSaveBtn").onclick=saveLogToSupabase;
+$("coursePresetSaveBtn").onclick=saveCoursePreset;
+$("coursePresetRefreshBtn").onclick=loadCoursePresets;
+$("coursePresetApplyBtn").onclick=applySelectedCoursePreset;
+$("coursePresetSelect").onchange=()=>{
+  const id=$("coursePresetSelect").value;
+  const row=coursePresets.find(x=>String(x.id)===String(id));
+  if(row)$("coursePresetInfo").textContent=formatCoursePresetLabel(row);
+};
 $("cloudLogRefreshBtn").onclick=loadCloudLogs;
 $("cloudLogRouteBtn").onclick=applySelectedCloudLogAsRoute;
 $("cloudLogSelect").onchange=()=>{
@@ -1046,13 +1239,18 @@ function currentControlGap(m,g){
 }
 
 function vehicleMarkerHtml(r,data){
-  const heading=Number.isFinite(data?.heading)?data.heading:0;
   const hasHeading=Number.isFinite(data?.heading);
-  const label=r==="main"?"MAIN":"MERGE";
+  const heading=hasHeading?data.heading:0;
+
+  if(!hasHeading){
+    return `<div class="vehicleMarker ${r}">
+      <div class="vehicleMarkerNoHeading"></div>
+    </div>`;
+  }
+
   return `<div class="vehicleMarker ${r}">
-    ${hasHeading?`<div class="vehicleHeading" style="transform:rotate(${heading}deg)">▲</div>`:""}
-    <div class="vehicleMarkerCore">${r==="main"?"M":"G"}</div>
-    <div class="vehicleMarkerName">${label}</div>
+    <div class="vehicleMarkerArrow" style="transform:rotate(${heading}deg)"></div>
+    <div class="vehicleMarkerDot"></div>
   </div>`;
 }
 
@@ -1068,17 +1266,30 @@ function updateVehicleMapMarker(r,data){
   const icon=L.divIcon({
     className:"vehicleMapIcon",
     html:vehicleMarkerHtml(r,data),
-    iconSize:[58,58],
-    iconAnchor:[29,29]
+    iconSize:[30,30],
+    iconAnchor:[15,15]
   });
 
+  const headingText=Number.isFinite(data?.heading)?` / 方位 ${Math.round(data.heading)}°`:"";
+  const tooltipText=`${r==="main"?"本線車":"合流車"}${headingText}`;
+
   if(!vehicleMarkers[r]){
-    vehicleMarkers[r]=L.marker([data.lat,data.lng],{icon,zIndexOffset:r==="main"?800:810})
+    vehicleMarkers[r]=L.marker([data.lat,data.lng],{
+      icon,
+      zIndexOffset:r==="main"?800:810
+    })
       .addTo(map)
-      .bindTooltip(r==="main"?"本線車":"合流車",{direction:"top",offset:[0,-28]});
+      .bindTooltip(tooltipText,{
+        direction:"top",
+        offset:[0,-14],
+        permanent:false
+      });
   }else{
     vehicleMarkers[r].setLatLng([data.lat,data.lng]);
     vehicleMarkers[r].setIcon(icon);
+    if(vehicleMarkers[r].getTooltip()){
+      vehicleMarkers[r].setTooltipContent(tooltipText);
+    }
   }
 }
 

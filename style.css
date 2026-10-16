@@ -746,3 +746,104 @@ body.role-setup .setupRouteTargetRow{
     max-height:none;
   }
 }
+
+/* v0.6.1 course preset */
+.coursePresetPanel{
+  margin:12px 0;
+  padding:12px;
+  border:1px solid var(--role-border);
+  border-radius:10px;
+  background:linear-gradient(180deg,var(--role-accent-soft),rgba(255,255,255,.015));
+}
+.coursePresetSaveRow,
+.coursePresetLoadRow{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+  align-items:end;
+}
+.coursePresetLoadRow{
+  grid-template-columns:minmax(0,1fr) auto auto;
+  margin-top:8px;
+}
+.coursePresetPanel input,
+.coursePresetPanel select{
+  margin:0;
+  min-width:0;
+}
+@media(max-width:760px){
+  .coursePresetSaveRow{
+    grid-template-columns:1fr;
+  }
+  .coursePresetLoadRow{
+    grid-template-columns:1fr 1fr;
+  }
+  .coursePresetLoadRow select{
+    grid-column:1/-1;
+  }
+}
+
+/* v0.6.2 compact timing-monitor markers */
+.vehicleMapIcon{
+  background:transparent!important;
+  border:0!important;
+}
+
+.vehicleMarker{
+  position:relative;
+  width:30px;
+  height:30px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.65));
+}
+
+.vehicleMarkerArrow{
+  width:0;
+  height:0;
+  border-left:7px solid transparent;
+  border-right:7px solid transparent;
+  border-bottom:18px solid currentColor;
+  transform-origin:50% 70%;
+  position:absolute;
+  left:8px;
+  top:5px;
+}
+
+.vehicleMarkerDot{
+  width:9px;
+  height:9px;
+  border-radius:50%;
+  border:2px solid #fff;
+  position:absolute;
+  left:10px;
+  top:11px;
+  box-shadow:0 1px 3px rgba(0,0,0,.6);
+}
+
+.vehicleMarker.main{color:#3b82f6}
+.vehicleMarker.merge{color:#f59e0b}
+.vehicleMarker.main .vehicleMarkerDot{background:#2563eb}
+.vehicleMarker.merge .vehicleMarkerDot{background:#f59e0b}
+
+.vehicleMarkerNoHeading{
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  border:3px solid #fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.65);
+}
+.vehicleMarker.main .vehicleMarkerNoHeading{background:#2563eb}
+.vehicleMarker.merge .vehicleMarkerNoHeading{background:#f59e0b}
+
+/* Hide old large marker pieces if cached CSS remains */
+.vehicleMarkerCore,
+.vehicleHeading,
+.vehicleMarkerName{
+  display:none!important;
+}
+
+/* Route legend */
+.legendItem.main{color:#3b82f6}
+.legendItem.merge{color:#f59e0b}

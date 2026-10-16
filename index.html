@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MergeNavi Cloud v0.6.0</title>
+<title>MergeNavi Cloud v0.6.2</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -12,7 +12,7 @@
   <div>
     <div class="titleRow">
       <h1>MergeNavi Cloud</h1>
-      <span class="versionBadge">Ver 0.6.0</span>
+      <span class="versionBadge">Ver 0.6.2</span>
       <span id="roleBadge" class="roleBadge merge">合流車</span><span id="masterBadge" class="masterBadge follower">FOLLOWER</span>
     </div>
     <div class="sub">Supabase Realtime / Smartphone GPS PoC</div>
@@ -141,8 +141,8 @@
     </select>
   </div>
   <div class="vehicleLegend">
-    <span class="legendItem main">● 本線車</span>
-    <span class="legendItem merge">● 合流車</span>
+    <span class="legendItem main">━ 本線経路 / 本線車</span>
+    <span class="legendItem merge">━ 合流経路 / 合流車</span>
     <span class="legendItem mergePoint">★ 合流点</span>
   </div>
 
@@ -155,6 +155,24 @@
     </label>
     <div class="setupHint">
       SETUP端末では、本線・合流のどちらを編集するか選択します。
+    </div>
+  </div>
+
+  <div class="coursePresetPanel">
+    <div class="panelSubTitle">コースプリセット</div>
+    <div class="coursePresetSaveRow">
+      <input id="coursePresetName" maxlength="60" placeholder="例：テストコースA_本線50_合流30">
+      <button id="coursePresetSaveBtn">現在設定を保存</button>
+    </div>
+    <div class="coursePresetLoadRow">
+      <select id="coursePresetSelect">
+        <option value="">「プリセット取得」を押してください</option>
+      </select>
+      <button id="coursePresetRefreshBtn">プリセット取得</button>
+      <button id="coursePresetApplyBtn" class="primary">読み込み・共有</button>
+    </div>
+    <div id="coursePresetInfo" class="help">
+      本線経路＋合流経路＋合流ポイント＋調整条件を1セットで保存します。
     </div>
   </div>
 
