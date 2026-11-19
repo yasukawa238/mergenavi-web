@@ -1,3 +1,7 @@
+import {
+  departureLimits, departureTime, estimateMotion, parseSpeedProfile,
+  predictMovingArrival, profileTravelTime, updateDepartureSchedule
+} from "./departure-prediction.js";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase-config.js";
 const APP_VERSION="0.6.4";
@@ -441,6 +445,7 @@ $("copySessionBtn").onclick=async()=>{
 
 
 async function leaveChannel(){
+  stopLiveDeparture("接続先が変更されました。");
   if(channel){
     try{await channel.untrack()}catch{}
     try{await supabase.removeChannel(channel)}catch{}
@@ -454,9 +459,19 @@ $("joinBtn").onclick=async()=>{
  const sid=sessionId(); if(!sid)return alert("Session IDを入力してください");
  await leaveChannel(); $("cloudBadge").textContent="接続中..."; $("cloudBadge").className="badge wait";
  channel=supabase.channel(`mergenavi:${sid}`,{config:{broadcast:{self:false,ack:true},presence:{key:clientId}}});
+ const sessionChannel=channel;
  channel
  .on("broadcast",{event:"state"},({payload})=>{lastCloudRx=Date.now();applyRemoteState(payload)})
- .on("broadcast",{event:"telemetry"},({payload})=>{lastCloudRx=Date.now();if(payload?.role && Object.prototype.hasOwnProperty.call(payload,"data")){telemetry[payload.role]=payload.data;refreshDashboard()}})
+ .on("broadcast",{event:"telemetry"},({payload})=>{
+   lastCloudRx=Date.now();
+   if(payload?.role && Object.prototype.hasOwnProperty.call(payload,"data")){
+     if(channel===sessionChannel && joined){
+       capturePeerDepartureSample(payload.role,payload.data);
+     }
+     telemetry[payload.role]=payload.data;
+     refreshDashboard();
+   }
+ })
  .on("broadcast",{event:"mergePoint"},({payload})=>{lastCloudRx=Date.now();if(payload?.point && (payload?.fromRole==="setup" || !isMaster()))setMergePoint(payload.point,false)})
  .on("broadcast",{event:"route"},({payload})=>{lastCloudRx=Date.now();if(payload?.role&&Array.isArray(payload?.points))setRoute(payload.role,payload.points,false)})
  .on("broadcast",{event:"commonSettings"},({payload})=>{
@@ -472,6 +487,7 @@ $("joinBtn").onclick=async()=>{
  .on("presence",{event:"join"},updatePresenceText)
  .on("presence",{event:"leave"},updatePresenceText)
  .subscribe(async status=>{
+   if(channel!==sessionChannel)return;
    if(status==="SUBSCRIBED"){joined=true;$("cloudBadge").textContent="Realtime接続";$("cloudBadge").className="badge on";await channel.track({clientId,role:role(),joinedAt:Date.now()});
     updatePresenceText();
    if(isMaster()){
@@ -482,10 +498,11 @@ $("joinBtn").onclick=async()=>{
    }
    if($("testMode").checked && canEditCommon())await publishIndoorTest();
    toast(`Session ${sid} に接続`)}
-   else if(["CHANNEL_ERROR","TIMED_OUT","CLOSED"].includes(status)){joined=false;$("cloudBadge").textContent=status;$("cloudBadge").className="badge off"}
+   else if(["CHANNEL_ERROR","TIMED_OUT","CLOSED"].includes(status)){stopLiveDeparture("Realtime接続が切断されました。");joined=false;$("cloudBadge").textContent=status;$("cloudBadge").className="badge off"}
  });
 };
 $("role").onchange=async()=>{
+  stopDeparture("端末役割が変更されました。");
   updateRoleTheme();
   clearCloudLogList();
   if(joined&&channel){
@@ -1104,11 +1121,14 @@ document.addEventListener("visibilitychange",async()=>{
   }
 });
 
-$("gpsBtn").onclick=()=>{if(isSetup())return toast("SETUP端末ではGPS送信しません");if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;$("gpsBtn").textContent="GPS開始";$("gpsStatus").textContent="停止中";return}if(!navigator.geolocation)return alert("このブラウザは位置情報非対応");
+$("gpsBtn").onclick=()=>{if(isSetup())return toast("SETUP端末ではGPS送信しません");if(watchId!=null){stopLiveDeparture("GPSが停止しました。");navigator.geolocation.clearWatch(watchId);watchId=null;$("gpsBtn").textContent="GPS開始";$("gpsStatus").textContent="停止中";return}if(!navigator.geolocation)return alert("このブラウザは位置情報非対応");
 $("gpsSource").textContent="Device Geolocation / High Accuracy";
 watchId=navigator.geolocation.watchPosition(
   onGeo,
-  e=>$("gpsStatus").textContent=`GPSエラー: ${e.message}`,
+  e=>{
+    $("gpsStatus").textContent=`GPSエラー: ${e.message}`;
+    stopLiveDeparture("GPSを取得できません。");
+  },
   {enableHighAccuracy:true,maximumAge:0,timeout:10000}
 );
 $("gpsBtn").textContent="GPS停止";
@@ -1125,7 +1145,12 @@ async function onGeo(g){
   speedEMA=sp;
   currentPos=pos;if(!currentMarker)currentMarker=L.circleMarker([pos.lat,pos.lng],{radius:8,weight:3}).addTo(map);else currentMarker.setLatLng([pos.lat,pos.lng]);const r=role();
   const calcSpeed=getEffectiveSpeed(r,speedEMA);
-  const calc=calcForRole(r,pos,calcSpeed);$("gpsStatus").textContent=`${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;$("accuracy").textContent=Number.isFinite(g.coords.accuracy)?`${g.coords.accuracy.toFixed(1)} m`:"-- m";$("speed").textContent=Number.isFinite(calcSpeed)?`${(calcSpeed*3.6).toFixed(1)} km/h`:"-- km/h";$("remaining").textContent=Number.isFinite(calc.remaining)?`${calc.remaining.toFixed(1)} m`:"-- m";const data={lat:pos.lat,lng:pos.lng,speed:Number.isFinite(calcSpeed)?calcSpeed:null,accuracy:g.coords.accuracy??null,heading:g.coords.heading??null,timestamp:ts,clientSentAt:Date.now(),remaining:calc.remaining,eta:calc.eta};if(logRecording){
+  const calc=calcForRole(r,pos,calcSpeed);$("gpsStatus").textContent=`${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;$("accuracy").textContent=Number.isFinite(g.coords.accuracy)?`${g.coords.accuracy.toFixed(1)} m`:"-- m";$("speed").textContent=Number.isFinite(calcSpeed)?`${(calcSpeed*3.6).toFixed(1)} km/h`:"-- km/h";$("remaining").textContent=Number.isFinite(calc.remaining)?`${calc.remaining.toFixed(1)} m`:"-- m";const data={lat:pos.lat,lng:pos.lng,speed:Number.isFinite(calcSpeed)?calcSpeed:null,accuracy:g.coords.accuracy??null,heading:g.coords.heading??null,timestamp:ts,clientSentAt:Date.now(),remaining:calc.remaining,eta:calc.eta};
+if(!$("testMode").checked){
+  data.departureSource=clientId;
+  captureDepartureSample(r,data,0);
+}
+if(logRecording){
   const otherRole=r==="main"?"merge":"main";
   const otherEta=Number.isFinite(telemetry[otherRole]?.eta)?telemetry[otherRole].eta:null;
   const delta=(r==="main")
@@ -1158,7 +1183,7 @@ telemetry[r]=data;await sendBroadcast("telemetry",{role:r,data});refreshDashboar
 $("centerBtn").onclick=()=>{if(currentPos)map.setView([currentPos.lat,currentPos.lng],18)};
 
 function toXY(p,refLat){const R=6371000,rad=Math.PI/180;return{x:R*(p.lng*rad)*Math.cos(refLat*rad),y:R*(p.lat*rad)}}
-function projectPointToRoute(p,route){if(!route||route.length<2)return null;const refLat=p.lat,P=toXY(p,refLat);let cum=0,best=null;for(let i=0;i<route.length-1;i++){const A=toXY(route[i],refLat),B=toXY(route[i+1],refLat),vx=B.x-A.x,vy=B.y-A.y,wx=P.x-A.x,wy=P.y-A.y,len2=vx*vx+vy*vy,t=len2?Math.max(0,Math.min(1,(wx*vx+wy*vy)/len2)):0,qx=A.x+t*vx,qy=A.y+t*vy,dx=P.x-qx,dy=P.y-qy,d2=dx*dx+dy*dy,segLen=Math.sqrt(len2);if(!best||d2<best.d2)best={d2,s:cum+t*segLen};cum+=segLen}return{...best,total:cum}}
+function projectPointToRoute(p,route,refLat=p.lat){if(!route||route.length<2)return null;const P=toXY(p,refLat);let cum=0,best=null;for(let i=0;i<route.length-1;i++){const A=toXY(route[i],refLat),B=toXY(route[i+1],refLat),vx=B.x-A.x,vy=B.y-A.y,wx=P.x-A.x,wy=P.y-A.y,len2=vx*vx+vy*vy,t=len2?Math.max(0,Math.min(1,(wx*vx+wy*vy)/len2)):0,qx=A.x+t*vx,qy=A.y+t*vy,dx=P.x-qx,dy=P.y-qy,d2=dx*dx+dy*dy,segLen=Math.sqrt(len2);if(!best||d2<best.d2)best={d2,s:cum+t*segLen};cum+=segLen}return{...best,total:cum}}
 function bearingDeg(a,b){
   const toRad=x=>x*Math.PI/180;
   const toDeg=x=>x*180/Math.PI;
@@ -1353,6 +1378,7 @@ async function publishIndoorTest(broadcast=true){
   const payloads=[];
   for(const r of ["main","merge"]){
     const data=indoorTestDataForRole(r);
+    if(indoorSim.running)captureDepartureSample(r,data,0);
     telemetry[r]=data;
     if(broadcast)payloads.push(sendBroadcast("telemetry",{role:r,data}));
   }
@@ -1635,3 +1661,250 @@ $("indoorSimResetBtn").onclick=()=>{
   toast("疑似走行 RESET");
 };
 setInterval(()=>{$("cloudAge").textContent=lastCloudRx?`${((Date.now()-lastCloudRx)/1000).toFixed(1)} s`:"-- s";$("age").textContent=lastGpsTimestamp?`${Math.max(0,(Date.now()-lastGpsTimestamp)/1000).toFixed(2)} s`:"-- s";refreshDashboard();if(logRecording)updateLogUi()},500);
+
+const departureRoles = ["main", "merge"];
+let departureRun = null;
+
+function renderDeparture(message, signal = false) {
+  const status = $("departureStatus");
+  if (status.textContent !== message) status.textContent = message;
+  $("departurePanel").classList.toggle("departureSignal", signal);
+}
+
+function stopDeparture(reason = "待機を終了しました。") {
+  if (!departureRun) return;
+  departureRun = null;
+  $("departureStart").disabled = false;
+  $("departureStop").disabled = true;
+  $("departureEta").textContent = "";
+  renderDeparture(reason);
+}
+
+function stopLiveDeparture(reason) {
+  if (departureRun && !departureRun.test) stopDeparture(reason);
+}
+
+function startDeparture() {
+  const target = $("controlRole").value;
+  const test = $("testMode").checked;
+  if (!departureRoles.includes(target)) return;
+
+  if (test ? !indoorSim.running : (!joined || watchId === null || role() !== target)) {
+    renderDeparture(test ? "この端末で疑似走行を開始してください。" :
+      "調整対象車の端末でRealtime接続とGPSを開始してください。");
+    return;
+  }
+  if (!indoorRouteReady(false)) {
+    renderDeparture("本線・合流の経路と合流点を設定してください。");
+    return;
+  }
+
+  const geometry = {};
+  try {
+    for (const r of departureRoles) {
+      const route = routes[r];
+      const latitude = route[0].lat;
+      const merge = projectPointToRoute(mergePoint, route, latitude);
+      const profile = parseSpeedProfile($(r === "main" ? "departureMainProfile" : "departureMergeProfile").value);
+      if (merge.s <= 0 || Math.sqrt(merge.d2) > departureLimits.routeOffsetM ||
+          profile.at(-1).distance < merge.s) {
+        throw new Error(`${roleLabel(r)}のプロファイルを合流点（経路始点から ${merge.s.toFixed(1)} m）まで設定してください。`);
+      }
+      if (r === target && !profile.some(point => point.speed === 0 && point.distance < merge.s)) {
+        throw new Error(`${roleLabel(r)}の発車地点に0 km/hの点を設定してください。`);
+      }
+      geometry[r] = { route, latitude, mergeStation: merge.s, profile };
+    }
+  } catch (error) {
+    renderDeparture(error.message);
+    return;
+  }
+
+  departureRun = {
+    target, test, geometry, latitude: mergePoint.lat, longitude: mergePoint.lng,
+    gap: targetGapSeconds(), session: sessionId(), channel, role: role(),
+    samples: { main: [], merge: [] }, peerSource: null,
+    phase: "waiting", schedule: null, signaledAt: null, clockOffset: Date.now() - performance.now()
+  };
+  $("departureStart").disabled = true;
+  $("departureStop").disabled = false;
+  renderDeparture(test ? "模擬測位を待っています。" : "両車の測位を待っています。");
+}
+
+function capturePeerDepartureSample(r, data) {
+  const run = departureRun;
+  if (!run || run.test || r === run.target || !departureRoles.includes(r)) return;
+  const source = data?.departureSource;
+  if (typeof source !== "string" || source === clientId) return;
+  if (run.peerSource && source !== run.peerSource) {
+    stopDeparture("相手車の端末が変わりました。待機を開始し直してください。");
+    return;
+  }
+  run.peerSource = source;
+  const transport = Date.now() - data.clientSentAt;
+  if (!Number.isFinite(transport) || transport < -departureLimits.clockSkewMs) {
+    run.samples[r] = [];
+    run.schedule = null;
+    return;
+  }
+  // 同期した端末時計を前提とし、負の配送時間はゼロに丸める。
+  captureDepartureSample(r, data, Math.max(0, transport));
+}
+
+function captureDepartureSample(r, data, transportMs) {
+  const run = departureRun;
+  if (!run || !departureRoles.includes(r) || run.test !== (data.testMode === true)) return;
+  const { timestamp, clientSentAt, speed, lat, lng, accuracy } = data;
+  const { mergeStation, route, latitude } = run.geometry[r];
+  const age = clientSentAt - timestamp + transportMs;
+  const ageBudget = departureLimits.sampleAgeMs - (run.test || r === run.target ? 0 : departureLimits.clockSkewMs);
+  const samples = run.samples[r];
+  if (Number.isFinite(timestamp) && timestamp <= samples.at(-1)?.timestamp) return;
+
+  if (!Number.isFinite(age) || clientSentAt < timestamp || age > ageBudget ||
+      !Number.isFinite(speed) || speed < 0 || !Number.isFinite(accuracy) ||
+      accuracy < 0 || accuracy > departureLimits.gpsAccuracyM) {
+    run.samples[r] = [];
+    run.schedule = null;
+    return;
+  }
+
+  const position = Number.isFinite(lat) && Number.isFinite(lng)
+    ? projectPointToRoute({ lat, lng }, route, latitude) : null;
+  if (!position || Math.sqrt(position.d2) > departureLimits.routeOffsetM) {
+    run.samples[r] = [];
+    run.schedule = null;
+    return;
+  }
+
+  const station = run.test ? mergeStation - data.remaining : position.s;
+  if (!Number.isFinite(station) || station < 0) {
+    run.samples[r] = [];
+    run.schedule = null;
+    return;
+  }
+
+  const now = performance.now();
+  const latest = samples.at(-1);
+  const contiguous = latest && now <= latest.validUntil &&
+    timestamp - latest.timestamp <= departureLimits.sampleAgeMs;
+  const stoppedSince = speed <= departureLimits.stoppedSpeed
+    ? (contiguous ? latest.stoppedSince ?? timestamp : timestamp) : null;
+  const movingSince = speed >= departureLimits.movingSpeed
+    ? (contiguous ? latest.movingSince ?? timestamp : timestamp) : null;
+  const observedAt = now - age;
+  const recent = contiguous ? samples.filter(sample =>
+    timestamp - sample.timestamp <= departureLimits.observationWindowMs) : [];
+  recent.push({ timestamp, speed, station, stoppedSince, movingSince, observedAt,
+    validUntil: observedAt + ageBudget });
+  run.samples[r] = recent;
+}
+
+function departureMovingPrediction(run, r, sample) {
+  const { profile, mergeStation } = run.geometry[r];
+  return predictMovingArrival(profile, Math.min(sample.station, mergeStation), mergeStation,
+    sample.speed, estimateMotion(run.samples[r]));
+}
+
+function refreshDeparture() {
+  const run = departureRun;
+  if (!run) return;
+  const { target, geometry, test } = run;
+  if (run.role !== role() || target !== $("controlRole").value || run.gap !== targetGapSeconds() ||
+      run.session !== sessionId() || test !== $("testMode").checked ||
+      run.latitude !== mergePoint?.lat || run.longitude !== mergePoint?.lng ||
+      departureRoles.some(r => geometry[r].route !== routes[r])) {
+    stopDeparture("経路または設定が変わりました。待機を開始し直してください。");
+    return;
+  }
+  if (test ? !indoorSim.running : (!joined || channel !== run.channel || watchId === null)) {
+    stopDeparture(test ? "疑似走行が停止しました。" : "接続またはGPSが停止しました。");
+    return;
+  }
+
+  const now = performance.now();
+  if (!test && Math.abs(Date.now() - now - run.clockOffset) > departureLimits.clockSkewMs) {
+    stopDeparture("端末時計が変更されました。待機を開始し直してください。");
+    return;
+  }
+  const peer = target === "main" ? "merge" : "main";
+  const ownSample = run.samples[target].at(-1);
+  const peerSample = run.samples[peer].at(-1);
+  if (ownSample && now <= ownSample.validUntil && ownSample.movingSince !== null &&
+      ownSample.timestamp - ownSample.movingSince >= departureLimits.motionHoldMs) {
+    run.phase = "moving";
+  }
+
+  const peerForward = peerSample && peerSample.station - run.samples[peer][0].station > 1;
+  const peerPrediction = peerSample && now <= peerSample.validUntil &&
+    peerSample.speed >= departureLimits.movingSpeed && departureMovingPrediction(run, peer, peerSample);
+  const peerSeconds = peerPrediction ? Math.max(0, peerPrediction.seconds - (now - peerSample.observedAt) / 1000) : null;
+  const ownPrediction = run.phase === "moving" && ownSample && now <= ownSample.validUntil &&
+    departureMovingPrediction(run, target, ownSample);
+  const ownSeconds = ownPrediction ? Math.max(0, ownPrediction.seconds - (now - ownSample.observedAt) / 1000) : null;
+  const format = (value, prediction) => value === null ? "—" :
+    `${value.toFixed(1)} 秒（${prediction.correction === null ? "速度プロファイル" : "観測で補正"}）`;
+  $("departureEta").textContent = `相手車の予測 ${format(peerSeconds, peerPrediction)}` +
+    (run.phase === "moving" ? ` / 対象車の予測 ${format(ownSeconds, ownPrediction)}` : "");
+
+  if (run.phase === "moving") {
+    renderDeparture(ownSeconds === 0 ? "対象車は合流点に到達する見込みです。" : "発車後の到達予測");
+    return;
+  }
+  if (run.phase === "missed") {
+    renderDeparture("発車予定を過ぎました。再計算するには待機を開始し直してください。");
+    return;
+  }
+  if (run.phase === "signaled") {
+    const show = run.signaledAt !== null && now - run.signaledAt <= 1500 &&
+      ownSample && now <= ownSample.validUntil && ownSample.speed <= departureLimits.stoppedSpeed &&
+      peerSeconds > 0 && peerForward;
+    if (!show) run.signaledAt = null;
+    renderDeparture(show ? (test ? "模擬発車の目安" : "発車の目安") : "合図済み・発車の検出待ち", !!show);
+    return;
+  }
+
+  const { profile, mergeStation } = geometry[target];
+  const stopped = ownSample && now <= ownSample.validUntil && ownSample.stoppedSince !== null &&
+    ownSample.timestamp - ownSample.stoppedSince >= departureLimits.motionHoldMs;
+  const launch = stopped && ownSample.station < mergeStation && profile.find(point =>
+    point.speed === 0 && point.distance < mergeStation &&
+    Math.abs(point.distance - ownSample.station) <= departureLimits.launchOffsetM);
+  const travel = launch ? profileTravelTime(profile, launch.distance, mergeStation) : null;
+  if (travel === null || !peerForward || !(peerSeconds > 0)) {
+    run.schedule = null;
+    renderDeparture("計算保留：発車地点での停車と相手車の新しい走行データを確認してください。");
+    return;
+  }
+
+  if (peerPrediction.correction !== null &&
+      peerPrediction.correction > departureLimits.maxTimingSpreadSeconds) {
+    run.schedule = null;
+    renderDeparture("計算保留：相手車の到達予測が安定していません。");
+    return;
+  }
+
+  const due = departureTime(peerSample.observedAt + peerPrediction.seconds * 1000, run.gap, travel);
+  const next = updateDepartureSchedule(run.schedule, due, now);
+  run.schedule = next.track;
+  if (next.status === "signal") {
+    run.phase = "signaled";
+    run.signaledAt = now;
+    renderDeparture(test ? "模擬発車の目安" : "発車の目安", true);
+  } else if (next.status === "missed") {
+    run.phase = "missed";
+    renderDeparture("発車予定を過ぎました。再計算するには待機を開始し直してください。");
+  } else {
+    renderDeparture(`発車の目安まで ${((due - now) / 1000).toFixed(1)} 秒`);
+  }
+}
+
+$("departureStart").onclick = startDeparture;
+$("departureStop").onclick = () => stopDeparture();
+for (const id of ["departureMainProfile", "departureMergeProfile"]) {
+  $(id).addEventListener("input", () => stopDeparture("速度プロファイルが変更されました。"));
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") stopDeparture("画面が非表示になったため、待機を終了しました。");
+});
+setInterval(refreshDeparture, 100);

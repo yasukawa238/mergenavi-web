@@ -955,3 +955,40 @@ body.role-setup .setupRouteTargetRow{
   .summaryHint{display:none}
   .advancedTestBody{padding:0 10px 12px}
 }
+
+.departurePanel summary {
+  cursor: pointer;
+}
+
+.departureProfiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 10px;
+}
+
+.departureProfiles textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid #57616e;
+  border-radius: 6px;
+  background: #0d1117;
+  color: #f0f3f6;
+  font: inherit;
+  resize: vertical;
+}
+
+.departureStatus {
+  margin: 8px 0 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.departureSignal .departureStatus {
+  padding: 10px;
+  border: 2px solid #e3b341;
+  border-radius: 6px;
+  color: #ffdf8a;
+  font-size: 1.3rem;
+}

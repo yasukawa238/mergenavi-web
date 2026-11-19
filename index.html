@@ -130,6 +130,31 @@
 
 
 
+<section id="departurePanel" class="panel departurePanel" aria-labelledby="departureTitle">
+  <h2 id="departureTitle" class="panelTitle">発車タイミング</h2>
+  <details>
+    <summary>速度プロファイルを設定</summary>
+    <p class="help">各行に経路の始点からの距離 [m] と速度 [km/h] をカンマで区切って入力します。
+      各経路の 0 m から合流点まで設定し、発車地点の速度を 0 km/h にしてください。</p>
+    <div class="departureProfiles">
+      <label>本線車の速度プロファイル
+        <textarea id="departureMainProfile" rows="4" spellcheck="false"></textarea>
+      </label>
+      <label>合流車の速度プロファイル
+        <textarea id="departureMergeProfile" rows="4" spellcheck="false"></textarea>
+      </label>
+    </div>
+  </details>
+  <p class="help">調整対象車が発車地点に停車した状態で待機を開始してください。
+    発車の目安は合流の安全を確認するものではありません。</p>
+  <div class="buttons wrap">
+    <button id="departureStart" type="button">発車待機を開始</button>
+    <button id="departureStop" type="button" disabled>待機を終了</button>
+  </div>
+  <p id="departureStatus" class="departureStatus">待機を開始していません。</p>
+  <p id="departureEta" class="help"></p>
+</section>
+
 <section class="panel mapToolsPanel">
   <div class="panelTitle">地図・経路設定</div>
   <div class="buttons wrap mapActionButtons">
